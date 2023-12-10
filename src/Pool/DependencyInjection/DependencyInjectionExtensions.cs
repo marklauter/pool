@@ -13,12 +13,12 @@ public static class DependencyInjectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
         where T : notnull
-        where TFactoryImplementation : class, IFactory<T>
+        where TFactoryImplementation : class, IPoolItemFactory<T>
     {
         _ = services
             .AddOptions()
             .Configure<PoolOptions>(configuration.GetSection(nameof(PoolOptions)));
-        services.TryAddSingleton<IFactory<T>, TFactoryImplementation>();
+        services.TryAddSingleton<IPoolItemFactory<T>, TFactoryImplementation>();
         services.TryAddSingleton<IPool<T>, Pool<T>>();
 
         return services;
@@ -37,12 +37,12 @@ public static class DependencyInjectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
         where T : notnull
-        where TFactoryImplementation : class, IFactory<T>
+        where TFactoryImplementation : class, IPoolItemFactory<T>
     {
         _ = services
             .AddOptions()
             .Configure<PoolOptions>(configuration.GetSection(nameof(PoolOptions)));
-        services.TryAddTransient<IFactory<T>, TFactoryImplementation>();
+        services.TryAddTransient<IPoolItemFactory<T>, TFactoryImplementation>();
         services.TryAddTransient<IPool<T>, Pool<T>>();
 
         return services;

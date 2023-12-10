@@ -78,7 +78,7 @@ internal sealed class Pool<T>
     private readonly int initialSize;
     private readonly ConcurrentQueue<T> pool;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
-    private readonly IFactory<T> itemFactory;
+    private readonly IPoolItemFactory<T> itemFactory;
 
     public int Allocated { get; private set; }
     public int Available => pool.Count;
@@ -86,7 +86,7 @@ internal sealed class Pool<T>
     public int Backlog => requests.Count;
 
     public Pool(
-        IFactory<T> itemFactory,
+        IPoolItemFactory<T> itemFactory,
         IOptions<PoolOptions> options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -126,6 +126,11 @@ internal sealed class Pool<T>
         using var leaseRequest = new LeaseRequest(timeout, cancellationToken);
         if (TryAcquireItem(out var item))
         {
+            if (!await itemFactory.IsReadyAsync(item, cancellationToken))
+            {
+                await itemFactory.MakeReadyAsync(item, cancellationToken);
+            }
+
             leaseRequest.SetResult(item);
         }
         else
@@ -136,29 +141,17 @@ internal sealed class Pool<T>
         return await leaseRequest.Task;
     }
 
-    public async Task<T> LeaseAsync(
-        TimeSpan timeout,
-        Func<T, CancellationToken, Task<bool>> isReady,
-        Func<T, CancellationToken, Task> makeReady,
-        CancellationToken cancellationToken)
-    {
-        var item = await LeaseAsync(timeout, cancellationToken);
-
-        if (!cancellationToken.IsCancellationRequested &&
-            !await isReady(item, cancellationToken))
-        {
-            await makeReady(item, cancellationToken);
-        }
-
-        return item;
-    }
-
-    public void Release(T item)
+    public async Task ReleaseAsync(T item, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
 
         if (requests.TryDequeue(out var leaseRequest))
         {
+            if (!await itemFactory.IsReadyAsync(item, cancellationToken))
+            {
+                await itemFactory.MakeReadyAsync(item, cancellationToken);
+            }
+
             leaseRequest.SetResult(item);
         }
         else
@@ -167,7 +160,7 @@ internal sealed class Pool<T>
         }
     }
 
-    public void Clear()
+    public async Task ClearAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
 
@@ -184,11 +177,14 @@ internal sealed class Pool<T>
             items = GetRequiredItems(itemsRequired);
         }
 
+        var tasks = new List<Task>(items.Count());
         foreach (var item in items)
         {
             // puts items into the pool or hands them off to queued lease requests
-            Release(item);
+            tasks.Add(ReleaseAsync(item, cancellationToken));
         }
+
+        await Task.WhenAll(tasks);
     }
 
     private bool TryAcquireItem([MaybeNullWhen(false)] out T item)
@@ -244,5 +240,10 @@ internal sealed class Pool<T>
     public void Dispose()
     {
         Dispose(disposing: true);
+    }
+
+    public void Clear()
+    {
+        throw new NotImplementedException();
     }
 }

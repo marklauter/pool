@@ -23,13 +23,19 @@ public sealed class PoolTests(IPool<IEcho> pool)
     }
 
     [Fact]
+    public void Backlog_Is_Empty()
+    {
+        Assert.Equal(0, pool.Backlog);
+    }
+
+    [Fact]
     public async Task Lease_And_Release()
     {
         Assert.Equal(0, pool.ActiveLeases);
         var instance = await pool.LeaseAsync(CancellationToken.None);
         Assert.NotNull(instance);
         Assert.Equal(1, pool.ActiveLeases);
-        pool.Release(instance);
+        await pool.ReleaseAsync(instance, CancellationToken.None);
         Assert.Equal(0, pool.ActiveLeases);
     }
 
@@ -45,7 +51,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
         Assert.Equal(1, pool.Backlog);
         Assert.False(task.IsCompleted);
 
-        pool.Release(instance1);
+        await pool.ReleaseAsync(instance1, CancellationToken.None);
         Assert.Equal(1, pool.ActiveLeases);
         Assert.Equal(0, pool.Available);
         Assert.Equal(0, pool.Backlog);
@@ -54,38 +60,18 @@ public sealed class PoolTests(IPool<IEcho> pool)
         var instance2 = await task;
         Assert.NotNull(instance2);
 
-        pool.Release(instance2);
+        await pool.ReleaseAsync(instance2, CancellationToken.None);
         Assert.Equal(0, pool.ActiveLeases);
     }
 
-    private static async Task<bool> IsReadyAsync(IEcho echo, CancellationToken cancellationToken)
-    {
-        return await Task.FromResult(echo.IsReady);
-    }
-
-    private static async Task MakeReadyAsync(IEcho echo, CancellationToken cancellationToken)
-    {
-        echo.MakeReady();
-        await Task.CompletedTask;
-    }
-
     [Fact]
-    public async Task Lease_And_Make_Ready()
+    public async Task Lease_Returns_Ready_Item()
     {
         var instance = await pool.LeaseAsync(CancellationToken.None);
-        Assert.False(instance.IsReady);
-
-        pool.Release(instance);
-
-        instance = await pool.LeaseAsync(
-            TimeSpan.FromMinutes(1),
-            IsReadyAsync,
-            MakeReadyAsync,
-            CancellationToken.None);
 
         Assert.True(instance.IsReady);
 
-        pool.Release(instance);
+        await pool.ReleaseAsync(instance, CancellationToken.None);
     }
 
     [Fact]
@@ -103,7 +89,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
         }
         finally
         {
-            pool.Release(instance1);
+            await pool.ReleaseAsync(instance1, CancellationToken.None);
         }
     }
 }

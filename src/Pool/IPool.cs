@@ -30,26 +30,10 @@ public interface IPool<T>
     Task<T> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken);
 
     /// <summary>
-    /// lease with item validation. 
-    /// returns an item from the pool or creates a new item.
-    /// tests the item for readiness through the isReady function.
-    /// for example: make sure a database connection is still open.
-    /// </summary>
-    /// <param name="timeout">time to wait for available item</param>
-    /// <param name="isReady">tests the item for readiness</param>
-    /// <param name="makeReady">makes the item ready if ready check fails</param>
-    /// <returns>item from the pool</returns>
-    Task<T> LeaseAsync(
-        TimeSpan timeout,
-        Func<T, CancellationToken, Task<bool>> isReady,
-        Func<T, CancellationToken, Task> makeReady,
-        CancellationToken cancellationToken);
-
-    /// <summary>
     /// returns an item to the pool
     /// </summary>
     /// <param name="item"></param>
-    void Release(T item);
+    Task ReleaseAsync(T item, CancellationToken cancellationToken);
 
     /// <summary>
     /// returns the number of items currently allocated by the pool  
