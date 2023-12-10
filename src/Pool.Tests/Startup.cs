@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Pool.DependencyInjection;
 using Pool.Tests.Fakes;
 
 namespace Pool.Tests;
@@ -21,7 +22,6 @@ public sealed class Startup
 
     public void ConfigureServices(IServiceCollection services)
     {
-        _ = services.AddTransient<IEcho, Echo>();
-        _ = services.AddTransientPool<IEcho>(configuration);
+        _ = services.AddTransientPool<IEcho, EchoFactory>(configuration);
     }
 }

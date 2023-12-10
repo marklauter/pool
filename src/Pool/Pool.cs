@@ -1,12 +1,11 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace Pool;
 
-internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
+internal sealed class Pool<T>
     : IPool<T>
     , IDisposable
     where T : notnull
@@ -72,12 +71,14 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
         }
     }
 
+    private readonly bool disposeRequired = typeof(T)
+        .GetInterface(nameof(IDisposable), true) is not null;
     private bool disposed;
     private readonly int maxSize;
     private readonly int initialSize;
-    private readonly IServiceScope scope;
     private readonly ConcurrentQueue<T> pool;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
+    private readonly IFactory<T> itemFactory;
 
     public int Allocated { get; private set; }
     public int Available => pool.Count;
@@ -85,23 +86,21 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
     public int Backlog => requests.Count;
 
     public Pool(
-        IOptions<PoolOptions> options,
-        IServiceProvider serviceProvider)
+        IFactory<T> itemFactory,
+        IOptions<PoolOptions> options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(serviceProvider);
 
         maxSize = options.Value?.MaxSize ?? Int32.MaxValue;
         initialSize = options.Value?.MinSize ?? 0;
 
-        scope = serviceProvider.CreateScope();
-
+        this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
         pool = new ConcurrentQueue<T>(GetRequiredItems(initialSize));
     }
 
     private T GetRequiredItem()
     {
-        var item = scope.ServiceProvider.GetRequiredService<T>();
+        var item = itemFactory.Create();
         ++Allocated;
         return item;
     }
@@ -226,11 +225,17 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
 
             if (disposing)
             {
-                scope.Dispose();
-
                 while (requests.TryDequeue(out var leaseRequest))
                 {
                     leaseRequest.Dispose();
+                }
+
+                if (disposeRequired)
+                {
+                    while (pool.TryDequeue(out var item))
+                    {
+                        (item as IDisposable)?.Dispose();
+                    }
                 }
             }
         }

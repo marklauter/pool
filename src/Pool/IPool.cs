@@ -1,12 +1,10 @@
-﻿using System.Diagnostics.CodeAnalysis;
-
-namespace Pool;
+﻿namespace Pool;
 
 /// <summary>
 /// pool
 /// </summary>
 /// <typeparam name="T"></typeparam>
-public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
+public interface IPool<T>
     where T : notnull
 {
     /// <summary>
