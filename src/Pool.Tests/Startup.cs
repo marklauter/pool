@@ -12,8 +12,8 @@ public sealed class Startup
         configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string>
             {
-                { "PoolOptions:MinSize", "10" },
-                { "PoolOptions:MaxSize", "20" }
+                { "PoolOptions:MinSize", "1" },
+                { "PoolOptions:MaxSize", "1" }
             })
             .Build();
     }

@@ -10,7 +10,7 @@ namespace Pool;
 internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
     : IPool<T>
     , IDisposable
-    where T : notnull, IDisposable
+    where T : notnull
 {
     private sealed class LeaseRequest
         : IDisposable
@@ -126,7 +126,7 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
         using var leaseRequest = new LeaseRequest(timeout);
         if (TryAcquireItem(out var item))
         {
-            leaseRequest.SetResult(PoolItemProxy<T>.Create(item, this));
+            leaseRequest.SetResult(item);
         }
         else
         {
@@ -151,7 +151,7 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
 
         if (requests.TryDequeue(out var leaseRequest))
         {
-            leaseRequest.SetResult(PoolItemProxy<T>.Create(item, this));
+            leaseRequest.SetResult(item);
         }
         else
         {

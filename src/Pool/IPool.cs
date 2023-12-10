@@ -7,7 +7,7 @@ namespace Pool;
 /// </summary>
 /// <typeparam name="T"></typeparam>
 public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
-    where T : notnull, IDisposable
+    where T : notnull
 {
     /// <summary>
     /// clears the pool and sets allocated to zero

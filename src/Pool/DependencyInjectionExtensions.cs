@@ -11,7 +11,8 @@ public static class DependencyInjectionExtensions
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     public static IServiceCollection AddPool<T>(
         this IServiceCollection services,
-        IConfiguration configuration) where T : notnull, IDisposable
+        IConfiguration configuration)
+        where T : notnull
     {
         _ = services.Configure<PoolOptions>(configuration.GetSection(nameof(PoolOptions)));
         services.TryAddSingleton<IPool<T>, Pool<T>>();
@@ -30,7 +31,8 @@ public static class DependencyInjectionExtensions
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     internal static IServiceCollection AddTransientPool<T>(
         this IServiceCollection services,
-        IConfiguration configuration) where T : notnull, IDisposable
+        IConfiguration configuration)
+        where T : notnull
     {
         _ = services.Configure<PoolOptions>(configuration.GetSection(nameof(PoolOptions)));
         services.TryAddTransient<IPool<T>, Pool<T>>();

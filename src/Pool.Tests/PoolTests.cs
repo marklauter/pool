@@ -11,7 +11,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
     [Fact]
     public void Allocated_Matches_Min()
     {
-        Assert.Equal(10, pool.Allocated);
+        Assert.Equal(1, pool.Allocated);
     }
 
     [Fact]
@@ -21,35 +21,38 @@ public sealed class PoolTests(IPool<IEcho> pool)
     }
 
     [Fact]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP017:Prefer using", Justification = "need precise order for unit test")]
-    public async Task Dispose_Releases_Item_Back_To_Pool()
+    public async Task Lease_And_Release()
     {
         Assert.Equal(0, pool.ActiveLeases);
         var instance = await pool.LeaseAsync();
-        try
-        {
-            Assert.Equal(1, pool.ActiveLeases);
-        }
-        finally
-        {
-            instance.Dispose();
-        }
-
+        Assert.NotNull(instance);
+        Assert.Equal(1, pool.ActiveLeases);
+        pool.Release(instance);
         Assert.Equal(0, pool.ActiveLeases);
     }
 
     [Fact]
-    public async Task Pool_Returns_Instance()
+    public async Task Lease_Queues_Request()
     {
-        using var instance = await pool.LeaseAsync();
-        Assert.NotNull(instance);
-    }
+        var instance1 = await pool.LeaseAsync();
+        Assert.Equal(1, pool.ActiveLeases);
 
-    [Fact]
-    public async Task Proxy_Works()
-    {
-        using var instance = await pool.LeaseAsync();
-        var content = "hello world";
-        Assert.Equal(content, instance.Shout(content));
+        var task = pool.LeaseAsync();
+        Assert.Equal(1, pool.ActiveLeases);
+        Assert.Equal(0, pool.Available);
+        Assert.Equal(1, pool.Backlog);
+        Assert.False(task.IsCompleted);
+
+        pool.Release(instance1);
+        Assert.Equal(1, pool.ActiveLeases);
+        Assert.Equal(0, pool.Available);
+        Assert.Equal(0, pool.Backlog);
+        Assert.True(task.IsCompleted);
+
+        var instance2 = await task;
+        Assert.NotNull(instance2);
+
+        pool.Release(instance2);
+        Assert.Equal(0, pool.ActiveLeases);
     }
 }
