@@ -86,4 +86,21 @@ public sealed class PoolTests(IPool<IEcho> pool)
 
         pool.Release(instance);
     }
+
+    [Fact]
+    public async Task Queued_Request_Timesout()
+    {
+        var instance1 = await pool.LeaseAsync();
+        Assert.Equal(1, pool.ActiveLeases);
+        try
+        {
+            var execption = await Assert
+                .ThrowsAsync<TaskCanceledException>(async () =>
+                    await pool.LeaseAsync(TimeSpan.FromMilliseconds(10)));
+        }
+        finally
+        {
+            pool.Release(instance1);
+        }
+    }
 }
