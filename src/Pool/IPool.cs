@@ -20,7 +20,7 @@ public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberType
     /// waits forever.
     /// </summary>
     /// <returns>item from the pool</returns>
-    Task<T> LeaseAsync();
+    Task<T> LeaseAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// lease with timeout. 
@@ -29,7 +29,7 @@ public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberType
     /// </summary>
     /// <param name="timeout">time to wait for available item</param>
     /// <returns>item from the pool</returns>
-    Task<T> LeaseAsync(TimeSpan timeout);
+    Task<T> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken);
 
     /// <summary>
     /// lease with item validation. 
@@ -43,8 +43,9 @@ public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberType
     /// <returns>item from the pool</returns>
     Task<T> LeaseAsync(
         TimeSpan timeout,
-        Func<T, Task<bool>> isReady,
-        Func<T, Task> makeReady);
+        Func<T, CancellationToken, Task<bool>> isReady,
+        Func<T, CancellationToken, Task> makeReady,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// returns an item to the pool

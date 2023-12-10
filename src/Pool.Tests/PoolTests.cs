@@ -26,7 +26,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
     public async Task Lease_And_Release()
     {
         Assert.Equal(0, pool.ActiveLeases);
-        var instance = await pool.LeaseAsync();
+        var instance = await pool.LeaseAsync(CancellationToken.None);
         Assert.NotNull(instance);
         Assert.Equal(1, pool.ActiveLeases);
         pool.Release(instance);
@@ -36,10 +36,10 @@ public sealed class PoolTests(IPool<IEcho> pool)
     [Fact]
     public async Task Lease_Queues_Request()
     {
-        var instance1 = await pool.LeaseAsync();
+        var instance1 = await pool.LeaseAsync(CancellationToken.None);
         Assert.Equal(1, pool.ActiveLeases);
 
-        var task = pool.LeaseAsync();
+        var task = pool.LeaseAsync(CancellationToken.None);
         Assert.Equal(1, pool.ActiveLeases);
         Assert.Equal(0, pool.Available);
         Assert.Equal(1, pool.Backlog);
@@ -58,12 +58,12 @@ public sealed class PoolTests(IPool<IEcho> pool)
         Assert.Equal(0, pool.ActiveLeases);
     }
 
-    private static async Task<bool> IsReady(IEcho echo)
+    private static async Task<bool> IsReadyAsync(IEcho echo, CancellationToken cancellationToken)
     {
         return await Task.FromResult(echo.IsReady);
     }
 
-    private static async Task MakeReady(IEcho echo)
+    private static async Task MakeReadyAsync(IEcho echo, CancellationToken cancellationToken)
     {
         echo.MakeReady();
         await Task.CompletedTask;
@@ -72,15 +72,16 @@ public sealed class PoolTests(IPool<IEcho> pool)
     [Fact]
     public async Task Lease_And_Make_Ready()
     {
-        var instance = await pool.LeaseAsync();
+        var instance = await pool.LeaseAsync(CancellationToken.None);
         Assert.False(instance.IsReady);
 
         pool.Release(instance);
 
         instance = await pool.LeaseAsync(
             TimeSpan.FromMinutes(1),
-            IsReady,
-            MakeReady);
+            IsReadyAsync,
+            MakeReadyAsync,
+            CancellationToken.None);
 
         Assert.True(instance.IsReady);
 
@@ -90,13 +91,15 @@ public sealed class PoolTests(IPool<IEcho> pool)
     [Fact]
     public async Task Queued_Request_Timesout()
     {
-        var instance1 = await pool.LeaseAsync();
+        var instance1 = await pool.LeaseAsync(CancellationToken.None);
         Assert.Equal(1, pool.ActiveLeases);
         try
         {
             var execption = await Assert
                 .ThrowsAsync<TaskCanceledException>(async () =>
-                    await pool.LeaseAsync(TimeSpan.FromMilliseconds(10)));
+                    await pool.LeaseAsync(
+                        TimeSpan.FromMilliseconds(10),
+                        CancellationToken.None));
         }
         finally
         {

@@ -18,8 +18,10 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
         private readonly CancellationTokenSource? cancellationTokenSource;
         private bool disposed;
 
-        public LeaseRequest(TimeSpan timeout)
+        public LeaseRequest(TimeSpan timeout, CancellationToken cancellationToken)
         {
+            _ = cancellationToken.Register(SetCanceled);
+
             if (timeout != Timeout.InfiniteTimeSpan)
             {
                 cancellationTokenSource = new CancellationTokenSource(timeout);
@@ -113,16 +115,16 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task<T> LeaseAsync()
+    public Task<T> LeaseAsync(CancellationToken cancellationToken)
     {
-        return LeaseAsync(Timeout.InfiniteTimeSpan);
+        return LeaseAsync(Timeout.InfiniteTimeSpan, cancellationToken);
     }
 
-    public async Task<T> LeaseAsync(TimeSpan timeout)
+    public async Task<T> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
 
-        using var leaseRequest = new LeaseRequest(timeout);
+        using var leaseRequest = new LeaseRequest(timeout, cancellationToken);
         if (TryAcquireItem(out var item))
         {
             leaseRequest.SetResult(item);
@@ -137,14 +139,16 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
 
     public async Task<T> LeaseAsync(
         TimeSpan timeout,
-        Func<T, Task<bool>> isReady,
-        Func<T, Task> makeReady)
+        Func<T, CancellationToken, Task<bool>> isReady,
+        Func<T, CancellationToken, Task> makeReady,
+        CancellationToken cancellationToken)
     {
-        var item = await LeaseAsync(timeout);
+        var item = await LeaseAsync(timeout, cancellationToken);
 
-        if (!await isReady(item))
+        if (!cancellationToken.IsCancellationRequested &&
+            !await isReady(item, cancellationToken))
         {
-            await makeReady(item);
+            await makeReady(item, cancellationToken);
         }
 
         return item;
