@@ -1,6 +1,7 @@
 ﻿namespace Pool;
 
-public interface IPool<T> where T : notnull
+public interface IPool<T>
+    where T : notnull, IDisposable
 {
     /// <summary>
     /// simple lease.

@@ -2,26 +2,26 @@
 
 namespace Pool;
 
-internal sealed class PoolItemProxy<TItem>
+internal sealed class PoolItemProxy<T>
     : DispatchProxy
     , IDisposable
-    where TItem : class, IDisposable
+    where T : notnull, IDisposable
 {
-    private TItem item = default!;
-    private IPool<TItem> pool = null!;
+    private T item = default!;
+    private IPool<T> pool = null!;
 
     private PoolItemProxy()
     {
 
     }
 
-    internal static TItem Create(
-        TItem item,
-        IPool<TItem> pool)
+    internal static T Create(
+        T item,
+        IPool<T> pool)
     {
-        var itemProxy = Create<TItem, PoolItemProxy<TItem>>();
+        var itemProxy = Create<T, PoolItemProxy<T>>();
 #pragma warning disable IDISP001 // Dispose created - justification - item is being returned from Create method
-        var proxy = itemProxy as PoolItemProxy<TItem>;
+        var proxy = itemProxy as PoolItemProxy<T>;
 #pragma warning restore IDISP001 // Dispose created
 #pragma warning disable CS8602 // Dereference of a possibly null reference. - justification - it's impossible to be null
         proxy.item = item;
@@ -38,10 +38,7 @@ internal sealed class PoolItemProxy<TItem>
 
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
     {
-        if (targetMethod is null)
-        {
-            throw new ArgumentNullException(nameof(targetMethod));
-        }
+        ArgumentNullException.ThrowIfNull(targetMethod);
 
         try
         {

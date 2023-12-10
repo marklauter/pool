@@ -1,6 +1,4 @@
-﻿using System.Runtime.Serialization;
-
-namespace Pool;
+﻿namespace Pool;
 
 public sealed class ProxyItemInvocationException
     : Exception
@@ -10,10 +8,6 @@ public sealed class ProxyItemInvocationException
     }
 
     public ProxyItemInvocationException(string? message) : base(message)
-    {
-    }
-
-    public ProxyItemInvocationException(SerializationInfo info, StreamingContext context) : base(info, context)
     {
     }
 

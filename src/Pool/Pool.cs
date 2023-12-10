@@ -9,7 +9,7 @@ namespace Pool;
 internal sealed class Pool<T>
     : IPool<T>
     , IDisposable
-    where T : notnull
+    where T : notnull, IDisposable
 {
     private sealed class LeaseRequest
         : IDisposable
@@ -122,7 +122,7 @@ internal sealed class Pool<T>
         using var leaseRequest = new LeaseRequest(timeout);
         if (TryAcquireItem(out var item))
         {
-            leaseRequest.SetResult(item);
+            leaseRequest.SetResult(PoolItemProxy<T>.Create(item, this));
         }
         else
         {
@@ -147,7 +147,7 @@ internal sealed class Pool<T>
 
         if (requests.TryDequeue(out var leaseRequest))
         {
-            leaseRequest.SetResult(item);
+            leaseRequest.SetResult(PoolItemProxy<T>.Create(item, this));
         }
         else
         {

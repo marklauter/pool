@@ -1,6 +1,4 @@
-﻿using System.Runtime.Serialization;
-
-namespace Pool;
+﻿namespace Pool;
 
 public sealed class NotReadyException
     : Exception
@@ -10,10 +8,6 @@ public sealed class NotReadyException
     }
 
     public NotReadyException(string? message) : base(message)
-    {
-    }
-
-    public NotReadyException(SerializationInfo info, StreamingContext context) : base(info, context)
     {
     }
 
