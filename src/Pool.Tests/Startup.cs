@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Pool.Tests.Fakes;
 
 namespace Pool.Tests;
 

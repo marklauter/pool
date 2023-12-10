@@ -1,3 +1,5 @@
+using Pool.Tests.Fakes;
+
 namespace Pool.Tests;
 
 public sealed class PoolTests(IPool<IEcho> pool)
@@ -54,5 +56,34 @@ public sealed class PoolTests(IPool<IEcho> pool)
 
         pool.Release(instance2);
         Assert.Equal(0, pool.ActiveLeases);
+    }
+
+    private static async Task<bool> IsReady(IEcho echo)
+    {
+        return await Task.FromResult(echo.IsReady);
+    }
+
+    private static async Task MakeReady(IEcho echo)
+    {
+        echo.MakeReady();
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Lease_And_Make_Ready()
+    {
+        var instance = await pool.LeaseAsync();
+        Assert.False(instance.IsReady);
+
+        pool.Release(instance);
+
+        instance = await pool.LeaseAsync(
+            TimeSpan.FromMinutes(1),
+            IsReady,
+            MakeReady);
+
+        Assert.True(instance.IsReady);
+
+        pool.Release(instance);
     }
 }

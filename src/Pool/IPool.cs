@@ -37,10 +37,14 @@ public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberType
     /// tests the item for readiness through the isReady function.
     /// for example: make sure a database connection is still open.
     /// </summary>
-    /// <param name="isReady">tests the item for readiness</param>
     /// <param name="timeout">time to wait for available item</param>
+    /// <param name="isReady">tests the item for readiness</param>
+    /// <param name="makeReady">makes the item ready if ready check fails</param>
     /// <returns>item from the pool</returns>
-    Task<T> LeaseAsync(TimeSpan timeout, Func<T, bool> isReady);
+    Task<T> LeaseAsync(
+        TimeSpan timeout,
+        Func<T, Task<bool>> isReady,
+        Func<T, Task> makeReady);
 
     /// <summary>
     /// returns an item to the pool

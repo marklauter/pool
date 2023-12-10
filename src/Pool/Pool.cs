@@ -135,13 +135,19 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
         return await leaseRequest.Task;
     }
 
-    public async Task<T> LeaseAsync(TimeSpan timeout, Func<T, bool> isReady)
+    public async Task<T> LeaseAsync(
+        TimeSpan timeout,
+        Func<T, Task<bool>> isReady,
+        Func<T, Task> makeReady)
     {
         var item = await LeaseAsync(timeout);
 
-        return !isReady(item)
-            ? throw new NotReadyException("ready check failed")
-            : item;
+        if (!await isReady(item))
+        {
+            await makeReady(item);
+        }
+
+        return item;
     }
 
     public void Release(T item)
