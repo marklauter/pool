@@ -77,7 +77,9 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
     private readonly ConcurrentQueue<T> pool;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
 
-    public long Allocated { get; private set; }
+    public int Allocated { get; private set; }
+    public int Available => pool.Count;
+    public int Backlog => requests.Count;
 
     public Pool(
         IOptions<PoolOptions> options,

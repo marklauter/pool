@@ -46,5 +46,15 @@ public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberType
     /// <summary>
     /// returns the number of items currently allocated by the pool  
     /// </summary>
-    long Allocated { get; }
+    int Allocated { get; }
+
+    /// <summary>
+    /// returns the number of unused, allocated items
+    /// </summary>
+    int Available { get; }
+
+    /// <summary>
+    /// returns the number of unsatisfied lease requests
+    /// </summary>
+    int Backlog { get; }
 }
