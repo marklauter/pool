@@ -22,6 +22,7 @@ public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberType
     /// returns an item from the pool or creates a new item while the pool is not full.
     /// waits forever.
     /// </summary>
+    /// <param name="timeout">time to wait for available item</param>
     /// <returns>item from the pool</returns>
     Task<T> LeaseAsync(TimeSpan timeout);
 
