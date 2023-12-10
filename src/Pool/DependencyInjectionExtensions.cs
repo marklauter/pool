@@ -18,4 +18,23 @@ public static class DependencyInjectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// for unit testing
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="services"></param>
+    /// <param name="configuration"></param>
+    /// <returns></returns>
+    [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
+    [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
+    internal static IServiceCollection AddTransientPool<T>(
+        this IServiceCollection services,
+        IConfiguration configuration) where T : notnull, IDisposable
+    {
+        _ = services.Configure<PoolOptions>(configuration.GetSection(nameof(PoolOptions)));
+        services.TryAddTransient<IPool<T>, Pool<T>>();
+
+        return services;
+    }
 }

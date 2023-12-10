@@ -1,19 +1,19 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 
 namespace Pool;
 
 [RequiresDynamicCode("Creating a proxy instance requires generating code at runtime")]
-internal sealed class PoolItemProxy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
+internal class PoolItemProxy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
     : DispatchProxy
-    , IDisposable
     where T : notnull, IDisposable
 {
+    private readonly MethodInfo disposeMethodInfo = typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose))!;
+
     private T item = default!;
     private IPool<T> pool = null!;
 
-    private PoolItemProxy()
+    public PoolItemProxy()
     {
 
     }
@@ -35,15 +35,18 @@ internal sealed class PoolItemProxy<[DynamicallyAccessedMembers(DynamicallyAcces
         return itemProxy;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Dispose()
-    {
-        pool.Release(item);
-    }
-
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
     {
         ArgumentNullException.ThrowIfNull(targetMethod);
+
+        if (targetMethod.DeclaringType == typeof(IDisposable))
+        {
+            if (targetMethod.HasSameMetadataDefinitionAs(disposeMethodInfo))
+            {
+                pool.Release(item);
+                return null;
+            }
+        }
 
         try
         {

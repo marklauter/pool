@@ -10,6 +10,11 @@ public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberType
     where T : notnull, IDisposable
 {
     /// <summary>
+    /// clears the pool and sets allocated to zero
+    /// </summary>
+    void Clear();
+
+    /// <summary>
     /// simple lease.
     /// returns an item from the pool or creates a new item while the pool is not full.
     /// waits forever.
@@ -52,6 +57,11 @@ public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberType
     /// returns the number of unused, allocated items
     /// </summary>
     int Available { get; }
+
+    /// <summary>
+    /// returns the number of items currently leased
+    /// </summary>
+    int ActiveLeases { get; }
 
     /// <summary>
     /// returns the number of unsatisfied lease requests

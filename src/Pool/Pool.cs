@@ -73,12 +73,14 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
 
     private bool disposed;
     private readonly int maxSize;
+    private readonly int initialSize;
     private readonly IServiceScope scope;
     private readonly ConcurrentQueue<T> pool;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
 
     public int Allocated { get; private set; }
     public int Available => pool.Count;
+    public int ActiveLeases => Allocated - Available;
     public int Backlog => requests.Count;
 
     public Pool(
@@ -89,7 +91,7 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
         ArgumentNullException.ThrowIfNull(serviceProvider);
 
         maxSize = options.Value?.MaxSize ?? Int32.MaxValue;
-        var initialSize = options.Value?.InitialSize ?? 0;
+        initialSize = options.Value?.MinSize ?? 0;
 
         scope = serviceProvider.CreateScope();
 
@@ -154,6 +156,30 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
         else
         {
             pool.Enqueue(item);
+        }
+    }
+
+    public void Clear()
+    {
+        ThrowIfDisposed();
+
+        IEnumerable<T> items;
+        lock (this)
+        {
+            Allocated = 0;
+            pool.Clear();
+
+            var itemsRequired = Backlog > initialSize
+                ? Backlog
+                : initialSize;
+
+            items = GetRequiredItems(itemsRequired);
+        }
+
+        foreach (var item in items)
+        {
+            // puts items into the pool or hands them off to queued lease requests
+            Release(item);
         }
     }
 

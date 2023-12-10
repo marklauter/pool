@@ -1,55 +1,55 @@
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-
 namespace Pool.Tests;
 
-internal interface IEcho
-    : IDisposable
-{
-    string Shout(string message);
-}
-
-internal sealed class Echo
-    : IEcho
-{
-    public void Dispose()
-    {
-        // nothing to do
-    }
-
-    public string Shout(string message)
-    {
-        return message;
-    }
-}
-
-public sealed class Startup
-{
-    private readonly IConfiguration configuration;
-
-    public Startup()
-    {
-        configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string>
-            {
-                { "PoolOptions:InitialSize", "10" },
-                { "PoolOptions:MaxSize", "20" }
-            })
-            .Build();
-    }
-
-    public void ConfigureServices(IServiceCollection services)
-    {
-        _ = services.AddTransient<IEcho, Echo>();
-        _ = services.AddPool<IEcho>(configuration);
-    }
-}
-
-public class PoolTests
+public sealed class PoolTests(IPool<IEcho> pool)
 {
     [Fact]
-    public void Test1()
+    public void Pool_Is_Injected()
     {
+        Assert.NotNull(pool);
+    }
 
+    [Fact]
+    public void Allocated_Matches_Min()
+    {
+        Assert.Equal(10, pool.Allocated);
+    }
+
+    [Fact]
+    public void Available_Matches_Allocated()
+    {
+        Assert.Equal(pool.Allocated, pool.Available);
+    }
+
+    [Fact]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP017:Prefer using", Justification = "need precise order for unit test")]
+    public async Task Dispose_Releases_Item_Back_To_Pool()
+    {
+        Assert.Equal(0, pool.ActiveLeases);
+        var instance = await pool.LeaseAsync();
+        try
+        {
+            Assert.Equal(1, pool.ActiveLeases);
+        }
+        finally
+        {
+            instance.Dispose();
+        }
+
+        Assert.Equal(0, pool.ActiveLeases);
+    }
+
+    [Fact]
+    public async Task Pool_Returns_Instance()
+    {
+        using var instance = await pool.LeaseAsync();
+        Assert.NotNull(instance);
+    }
+
+    [Fact]
+    public async Task Proxy_Works()
+    {
+        using var instance = await pool.LeaseAsync();
+        var content = "hello world";
+        Assert.Equal(content, instance.Shout(content));
     }
 }
