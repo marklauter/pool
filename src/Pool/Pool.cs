@@ -71,14 +71,13 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
         }
     }
 
-    private long itemsAllocated;
     private bool disposed;
     private readonly int maxSize;
     private readonly IServiceScope scope;
     private readonly ConcurrentQueue<T> pool;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
 
-    public long Size => Interlocked.Read(ref itemsAllocated);
+    public long Allocated { get; private set; }
 
     public Pool(
         IOptions<PoolOptions> options,
@@ -98,7 +97,7 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
     private T GetRequiredItem()
     {
         var item = scope.ServiceProvider.GetRequiredService<T>();
-        _ = Interlocked.Increment(ref itemsAllocated);
+        ++Allocated;
         return item;
     }
 
@@ -164,10 +163,13 @@ internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMember
             return true;
         }
 
-        if (Interlocked.Read(ref itemsAllocated) < maxSize)
+        lock (this)
         {
-            item = GetRequiredItem();
-            return true;
+            if (Allocated < maxSize)
+            {
+                item = GetRequiredItem();
+                return true;
+            }
         }
 
         return false;
