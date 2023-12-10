@@ -18,14 +18,13 @@ internal sealed class PoolItemProxy<[DynamicallyAccessedMembers(DynamicallyAcces
 
     }
 
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP001:Dispose created", Justification = "analyzer doesn't know the item under analysis is being returned by the function")]
     internal static T Create(
         T item,
         IPool<T> pool)
     {
         var itemProxy = Create<T, PoolItemProxy<T>>();
-#pragma warning disable IDISP001 // Dispose created - justification - item is being returned from Create method
         var proxy = itemProxy as PoolItemProxy<T>;
-#pragma warning restore IDISP001 // Dispose created
 
         if (proxy is not null)
         {
