@@ -1,21 +1,83 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace Pool;
 
 internal sealed class Pool<T>
     : IPool<T>
     , IDisposable
-    where T : class, IDisposable
+    where T : notnull
 {
-    private bool disposed;
-    private long allocated;
-    private readonly int maxSize;
-    private readonly TimeSpan waitTimeout;
-    private readonly ConcurrentQueue<T> pool;
+    private sealed class LeaseRequest
+        : IDisposable
+    {
+        private readonly TaskCompletionSource<T> taskCompletionSource = new();
+        private readonly CancellationTokenSource? cancellationTokenSource;
+        private bool disposed;
 
-    public long Size => Interlocked.Read(ref allocated);
+        public LeaseRequest(TimeSpan timeout)
+        {
+            if (timeout != Timeout.InfiniteTimeSpan)
+            {
+                cancellationTokenSource = new CancellationTokenSource(timeout);
+                _ = cancellationTokenSource.Token.Register(SetCanceled);
+            }
+        }
+
+        public Task<T> Task => taskCompletionSource.Task;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SetResult(T item)
+        {
+            if (taskCompletionSource.TrySetResult(item))
+            {
+                Dispose();
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void SetCanceled()
+        {
+            if (taskCompletionSource.TrySetCanceled())
+            {
+                Dispose();
+            }
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (!disposed)
+            {
+                if (disposing)
+                {
+                    if (cancellationTokenSource is not null)
+                    {
+                        cancellationTokenSource.Cancel();
+                        cancellationTokenSource.Dispose();
+                    }
+                }
+
+                disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(disposing: true);
+        }
+    }
+
+    private long itemsAllocated;
+    private bool disposed;
+    private readonly int maxSize;
+    private readonly IServiceScope scope;
+    private readonly ConcurrentQueue<T> pool;
+    private readonly ConcurrentQueue<LeaseRequest> requests = new();
+
+    public long Size => Interlocked.Read(ref itemsAllocated);
 
     public Pool(
         IOptions<PoolOptions> options,
@@ -24,74 +86,96 @@ internal sealed class Pool<T>
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(serviceProvider);
 
-        maxSize = options.Value.MaxSize;
-        allocated = options.Value.InitialSize;
-        pool = new ConcurrentQueue<T>(Pool<T>.CreateItems(options.Value.InitialSize));
+        maxSize = options.Value?.MaxSize ?? Int32.MaxValue;
+        var initialSize = options.Value?.InitialSize ?? 0;
+
+        scope = serviceProvider.CreateScope();
+
+        pool = new ConcurrentQueue<T>(GetRequiredItems(initialSize));
     }
 
-    public T Lease()
+    private T GetRequiredItem()
     {
-        CheckDisposed();
+        var item = scope.ServiceProvider.GetRequiredService<T>();
+        _ = Interlocked.Increment(ref itemsAllocated);
+        return item;
+    }
 
-        var item = AcquireItem();
-        return PoolItemProxy<T>.Create(item, this);
+    private IEnumerable<T> GetRequiredItems(int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            yield return GetRequiredItem();
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Task<T> LeaseAsync()
+    {
+        return LeaseAsync(Timeout.InfiniteTimeSpan);
+    }
+
+    public async Task<T> LeaseAsync(TimeSpan timeout)
+    {
+        ThrowIfDisposed();
+
+        using var leaseRequest = new LeaseRequest(timeout);
+        if (TryAcquireItem(out var item))
+        {
+            leaseRequest.SetResult(item);
+        }
+        else
+        {
+            requests.Enqueue(leaseRequest);
+        }
+
+        return await leaseRequest.Task;
+    }
+
+    public async Task<T> LeaseAsync(TimeSpan timeout, Func<T, bool> isReady)
+    {
+        var item = await LeaseAsync(timeout);
+
+        return !isReady(item)
+            ? throw new NotReadyException("ready check failed")
+            : item;
     }
 
     public void Release(T item)
     {
-        CheckDisposed();
-        ArgumentNullException.ThrowIfNull(item);
+        ThrowIfDisposed();
 
-        pool.Enqueue(item);
-    }
-
-    private T AcquireItem()
-    {
-        var dequeued = pool.TryDequeue(out var item);
-        if (dequeued && item is not null)
+        if (requests.TryDequeue(out var leaseRequest))
         {
-            return item;
-        }
-
-        var size = Interlocked.Read(ref allocated);
-        if (size < maxSize)
-        {
-            _ = Interlocked.Increment(ref allocated);
-            return Pool<T>.CreateItem();
+            leaseRequest.SetResult(item);
         }
         else
         {
-            while (true)
-            {
-                dequeued = pool.TryDequeue(out item);
-                if (dequeued)
-                {
-                    return item;
-                }
-            }
+            pool.Enqueue(item);
         }
     }
 
-    private static T CreateItem()
+    private bool TryAcquireItem([MaybeNullWhen(false)] out T item)
     {
-        return scope.ServiceProvider.GetRequiredService<T>()
-            ?? throw new InvalidOperationException($"Could not create an instance of {typeof(T)}");
-    }
-
-    private static IEnumerable<T> CreateItems(int count)
-    {
-        for (var i = 0; i < count; i++)
+        var dequeued = pool.TryDequeue(out item);
+        if (dequeued && item is not null)
         {
-            yield return Pool<T>.CreateItem();
+            return true;
         }
+
+        if (Interlocked.Read(ref itemsAllocated) < maxSize)
+        {
+            item = GetRequiredItem();
+            return true;
+        }
+
+        return false;
     }
 
-    private void CheckDisposed()
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ThrowIfDisposed()
     {
-        if (disposed)
-        {
-            throw new ObjectDisposedException(nameof(Pool<T>));
-        }
+        ObjectDisposedException.ThrowIf(disposed, this);
     }
 
     private void Dispose(bool disposing)
@@ -102,8 +186,12 @@ internal sealed class Pool<T>
 
             if (disposing)
             {
-                pool.Clear();
                 scope.Dispose();
+
+                while (requests.TryDequeue(out var leaseRequest))
+                {
+                    leaseRequest.Dispose();
+                }
             }
         }
     }
@@ -111,20 +199,5 @@ internal sealed class Pool<T>
     public void Dispose()
     {
         Dispose(disposing: true);
-    }
-
-    public T Lease(TimeSpan timeout)
-    {
-        throw new NotImplementedException();
-    }
-
-    public T Lease(TimeSpan timeout, Func<T, bool> isReady)
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task<T> LeaseAsync()
-    {
-        throw new NotImplementedException();
     }
 }

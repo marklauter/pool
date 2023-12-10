@@ -1,6 +1,6 @@
 ﻿namespace Pool;
 
-public interface IPool<T>
+public interface IPool<T> where T : notnull
 {
     /// <summary>
     /// simple lease.
@@ -16,7 +16,7 @@ public interface IPool<T>
     /// waits forever.
     /// </summary>
     /// <returns>item from the pool</returns>
-    T Lease(TimeSpan timeout);
+    Task<T> LeaseAsync(TimeSpan timeout);
 
     /// <summary>
     /// lease with item validation. 
@@ -27,7 +27,7 @@ public interface IPool<T>
     /// <param name="isReady">tests the item for readiness</param>
     /// <param name="timeout">time to wait for available item</param>
     /// <returns>item from the pool</returns>
-    T Lease(TimeSpan timeout, Func<T, bool> isReady);
+    Task<T> LeaseAsync(TimeSpan timeout, Func<T, bool> isReady);
 
     /// <summary>
     /// returns an item to the pool
@@ -36,7 +36,7 @@ public interface IPool<T>
     void Release(T item);
 
     /// <summary>
-    /// returns the number of items contained by the pool  
+    /// returns the number of items currently allocated by the pool  
     /// </summary>
     long Size { get; }
 }
