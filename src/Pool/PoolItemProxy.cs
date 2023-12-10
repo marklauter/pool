@@ -1,8 +1,11 @@
-﻿using System.Reflection;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace Pool;
 
-internal sealed class PoolItemProxy<T>
+[RequiresDynamicCode("Creating a proxy instance requires generating code at runtime")]
+internal sealed class PoolItemProxy<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
     : DispatchProxy
     , IDisposable
     where T : notnull, IDisposable
@@ -23,14 +26,17 @@ internal sealed class PoolItemProxy<T>
 #pragma warning disable IDISP001 // Dispose created - justification - item is being returned from Create method
         var proxy = itemProxy as PoolItemProxy<T>;
 #pragma warning restore IDISP001 // Dispose created
-#pragma warning disable CS8602 // Dereference of a possibly null reference. - justification - it's impossible to be null
-        proxy.item = item;
-#pragma warning restore CS8602 // Dereference of a possibly null reference.
-        proxy.pool = pool ?? throw new ArgumentNullException(nameof(pool));
+
+        if (proxy is not null)
+        {
+            proxy.item = item;
+            proxy.pool = pool ?? throw new ArgumentNullException(nameof(pool));
+        }
 
         return itemProxy;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Dispose()
     {
         pool.Release(item);

@@ -6,7 +6,8 @@ using System.Runtime.CompilerServices;
 
 namespace Pool;
 
-internal sealed class Pool<T>
+[RequiresDynamicCode("Creating a proxy instance requires generating code at runtime")]
+internal sealed class Pool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
     : IPool<T>
     , IDisposable
     where T : notnull, IDisposable

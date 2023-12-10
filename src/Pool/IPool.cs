@@ -1,6 +1,12 @@
-﻿namespace Pool;
+﻿using System.Diagnostics.CodeAnalysis;
 
-public interface IPool<T>
+namespace Pool;
+
+/// <summary>
+/// pool
+/// </summary>
+/// <typeparam name="T"></typeparam>
+public interface IPool<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>
     where T : notnull, IDisposable
 {
     /// <summary>
