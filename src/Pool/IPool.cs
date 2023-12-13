@@ -10,7 +10,7 @@ public interface IPool<T>
     /// <summary>
     /// clears the pool and sets allocated to zero
     /// </summary>
-    void Clear();
+    Task ClearAsync(CancellationToken cancellationToken)
 
     /// <summary>
     /// simple lease.

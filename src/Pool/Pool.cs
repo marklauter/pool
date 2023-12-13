@@ -93,23 +93,37 @@ internal sealed class Pool<T>
 
         maxSize = options.Value?.MaxSize ?? Int32.MaxValue;
         initialSize = options.Value?.MinSize ?? 0;
+        initialSize = initialSize > maxSize ? maxSize : initialSize;
 
         this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
-        pool = new ConcurrentQueue<T>(GetRequiredItems(initialSize));
+        pool = new ConcurrentQueue<T>(CreateItems(initialSize));
     }
 
-    private T GetRequiredItem()
+    private bool TryCreateItem([MaybeNullWhen(false)] out T item)
     {
-        var item = itemFactory.Create();
-        ++Allocated;
-        return item;
-    }
-
-    private IEnumerable<T> GetRequiredItems(int count)
-    {
-        for (var i = 0; i < count; i++)
+        item = default;
+        lock (this)
         {
-            yield return GetRequiredItem();
+            if (Allocated < maxSize)
+            {
+                ++Allocated;
+                item = itemFactory.Create();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private IEnumerable<T> CreateItems(int count)
+    {
+        lock (this)
+        {
+            Allocated = count;
+            for (var i = 0; i < count; i++)
+            {
+                yield return itemFactory.Create();
+            }
         }
     }
 
@@ -164,18 +178,13 @@ internal sealed class Pool<T>
     {
         ThrowIfDisposed();
 
-        IEnumerable<T> items;
-        lock (this)
-        {
-            Allocated = 0;
-            pool.Clear();
+        pool.Clear();
 
-            var itemsRequired = Backlog > initialSize
-                ? Backlog
-                : initialSize;
+        var itemsRequired = Backlog > initialSize
+            ? Backlog
+            : initialSize;
 
-            items = GetRequiredItems(itemsRequired);
-        }
+        var items = CreateItems(itemsRequired);
 
         var tasks = new List<Task>(items.Count());
         foreach (var item in items)
@@ -190,21 +199,8 @@ internal sealed class Pool<T>
     private bool TryAcquireItem([MaybeNullWhen(false)] out T item)
     {
         var dequeued = pool.TryDequeue(out item);
-        if (dequeued && item is not null)
-        {
-            return true;
-        }
-
-        lock (this)
-        {
-            if (Allocated < maxSize)
-            {
-                item = GetRequiredItem();
-                return true;
-            }
-        }
-
-        return false;
+        return dequeued && item is not null
+            || TryCreateItem(out item);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -240,10 +236,5 @@ internal sealed class Pool<T>
     public void Dispose()
     {
         Dispose(disposing: true);
-    }
-
-    public void Clear()
-    {
-        throw new NotImplementedException();
     }
 }
