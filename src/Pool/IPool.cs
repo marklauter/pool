@@ -10,7 +10,7 @@ public interface IPool<T>
     /// <summary>
     /// clears the pool and sets allocated to zero
     /// </summary>
-    Task ClearAsync(CancellationToken cancellationToken)
+    Task ClearAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// simple lease.
@@ -23,7 +23,7 @@ public interface IPool<T>
     /// <summary>
     /// lease with timeout. 
     /// returns an item from the pool or creates a new item while the pool is not full.
-    /// waits forever.
+    /// waits until timeout exceeded and then cancelation token is canceled.
     /// </summary>
     /// <param name="timeout">time to wait for available item</param>
     /// <returns>item from the pool</returns>
