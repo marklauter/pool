@@ -13,25 +13,40 @@ internal sealed class Pool<TPoolItem>
     private sealed class LeaseRequest
         : IDisposable
     {
+        public Task<TPoolItem> Task => taskCompletionSource.Task;
+
         private readonly TaskCompletionSource<TPoolItem> taskCompletionSource = new();
-        private readonly CancellationTokenSource? cancellationTokenSource;
+        private readonly CancellationTokenSource? timeoutTokenSource;
+        private readonly CancellationTokenSource? linkedTokenSource;
         private bool disposed;
 
         public LeaseRequest(TimeSpan timeout, CancellationToken cancellationToken)
         {
-            _ = cancellationToken.Register(SetCanceled);
-
-            if (timeout != Timeout.InfiniteTimeSpan)
+            // no timeout, so register cancellation token only
+            if (timeout == Timeout.InfiniteTimeSpan)
             {
-                cancellationTokenSource = new CancellationTokenSource(timeout);
-                _ = cancellationTokenSource.Token.Register(SetCanceled);
+                _ = cancellationToken.Register(TaskSetCanceled);
+                return;
             }
+
+            timeoutTokenSource = new CancellationTokenSource(timeout);
+            // no cancellation token, so register timeout only
+            if (cancellationToken == CancellationToken.None)
+            {
+                _ = timeoutTokenSource.Token.Register(TaskSetCanceled);
+                return;
+            }
+
+            // both timeout and cancellation token, so register linked token source
+            linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                timeoutTokenSource.Token);
+
+            _ = linkedTokenSource.Token.Register(TaskSetCanceled);
         }
 
-        public Task<TPoolItem> Task => taskCompletionSource.Task;
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SetResult(TPoolItem item)
+        public void TaskSetResult(TPoolItem item)
         {
             if (taskCompletionSource.TrySetResult(item))
             {
@@ -40,7 +55,7 @@ internal sealed class Pool<TPoolItem>
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void SetCanceled()
+        private void TaskSetCanceled()
         {
             if (!taskCompletionSource.Task.IsCompletedSuccessfully
                 && taskCompletionSource.TrySetCanceled())
@@ -53,16 +68,23 @@ internal sealed class Pool<TPoolItem>
         {
             if (!disposed)
             {
+                disposed = true;
+
                 if (disposing)
                 {
-                    if (cancellationTokenSource is not null)
+                    if (timeoutTokenSource is not null)
                     {
-                        cancellationTokenSource.Cancel();
-                        cancellationTokenSource.Dispose();
+                        // Canceling unblocks any awaiters.
+                        // Cancel() will either call SetCanceled() directly if
+                        // there is no linked token source,
+                        // or it will trigger Cancel() on the linked token source,
+                        // so the linked token source will not need to be canceled explicitly.
+                        timeoutTokenSource.Cancel();
+                        timeoutTokenSource.Dispose();
                     }
-                }
 
-                disposed = true;
+                    linkedTokenSource?.Dispose();
+                }
             }
         }
 
@@ -77,14 +99,16 @@ internal sealed class Pool<TPoolItem>
     private bool disposed;
     private readonly int maxSize;
     private readonly int initialSize;
-    private readonly ConcurrentQueue<TPoolItem> pool;
+    private readonly ConcurrentQueue<TPoolItem> items;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
     private readonly IPoolItemFactory<TPoolItem> itemFactory;
+    private readonly TimeSpan leaseTimeout;
+    private readonly TimeSpan readyTimeout;
 
-    public int Allocated { get; private set; }
-    public int Available => pool.Count;
-    public int ActiveLeases => Allocated - Available;
-    public int Backlog => requests.Count;
+    public int ItemsAllocated { get; private set; }
+    public int ItemsAvailable => items.Count;
+    public int ActiveLeases => ItemsAllocated - ItemsAvailable;
+    public int LeaseBacklog => requests.Count;
 
     public Pool(
         IPoolItemFactory<TPoolItem> itemFactory,
@@ -92,12 +116,87 @@ internal sealed class Pool<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(options);
 
+        leaseTimeout = options.Value?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
+        readyTimeout = options.Value?.ReadyTimeout ?? Timeout.InfiniteTimeSpan;
         maxSize = options.Value?.MaxSize ?? Int32.MaxValue;
         initialSize = options.Value?.MinSize ?? 0;
-        initialSize = initialSize > maxSize ? maxSize : initialSize;
+        initialSize = initialSize > maxSize
+            ? maxSize
+            : initialSize;
 
         this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
-        pool = new ConcurrentQueue<TPoolItem>(CreateItems(initialSize));
+        items = new ConcurrentQueue<TPoolItem>(CreateItems(initialSize));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Task<TPoolItem> LeaseAsync()
+    {
+        return LeaseAsync(CancellationToken.None);
+    }
+
+    public async Task<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        if (TryAcquireItem(out var item))
+        {
+            await ReadyCheckAsync(item, cancellationToken);
+            return item;
+        }
+
+        var leaseRequest = new LeaseRequest(leaseTimeout, cancellationToken);
+        requests.Enqueue(leaseRequest);
+        return await leaseRequest.Task;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Task ReleaseAsync(TPoolItem item)
+    {
+        return ReleaseAsync(item, CancellationToken.None);
+    }
+
+    public async Task ReleaseAsync(
+        TPoolItem item,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        if (requests.TryDequeue(out var leaseRequest))
+        {
+            await ReadyCheckAsync(item, cancellationToken);
+            leaseRequest.TaskSetResult(item);
+            return;
+        }
+
+        items.Enqueue(item);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Task ClearAsync()
+    {
+        return ClearAsync(CancellationToken.None);
+    }
+
+    public async Task ClearAsync(CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        this.items.Clear();
+
+        var itemsRequired = LeaseBacklog > initialSize
+            ? LeaseBacklog
+            : initialSize;
+
+        var items = CreateItems(itemsRequired);
+
+        var tasks = new List<Task>(items.Count());
+        foreach (var item in items)
+        {
+            // enqueues items or hands them off to backlogged lease requests
+            tasks.Add(ReleaseAsync(item, cancellationToken));
+        }
+
+        await Task.WhenAll(tasks);
     }
 
     private bool TryCreateItem([MaybeNullWhen(false)] out TPoolItem item)
@@ -105,9 +204,9 @@ internal sealed class Pool<TPoolItem>
         item = default;
         lock (this)
         {
-            if (Allocated < maxSize)
+            if (ItemsAllocated < maxSize)
             {
-                ++Allocated;
+                ++ItemsAllocated;
                 item = itemFactory.Create();
                 return true;
             }
@@ -120,7 +219,7 @@ internal sealed class Pool<TPoolItem>
     {
         lock (this)
         {
-            Allocated = count;
+            ItemsAllocated = count;
             for (var i = 0; i < count; i++)
             {
                 yield return itemFactory.Create();
@@ -129,80 +228,29 @@ internal sealed class Pool<TPoolItem>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
-    {
-        return LeaseAsync(Timeout.InfiniteTimeSpan, cancellationToken);
-    }
-
-    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP001:Dispose created", Justification = "leaseRequest is disposed when lease times out or when request is fullfilled")]
-    public async Task<TPoolItem> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-
-        var leaseRequest = new LeaseRequest(timeout, cancellationToken);
-        if (TryAcquireItem(out var item))
-        {
-            if (!await itemFactory.IsReadyAsync(item, cancellationToken))
-            {
-                await itemFactory.MakeReadyAsync(item, cancellationToken);
-            }
-
-            leaseRequest.SetResult(item);
-        }
-        else
-        {
-            requests.Enqueue(leaseRequest);
-        }
-
-        return await leaseRequest.Task;
-    }
-
-    public async Task ReleaseAsync(TPoolItem item, CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-
-        if (requests.TryDequeue(out var leaseRequest))
-        {
-            if (!await itemFactory.IsReadyAsync(item, cancellationToken))
-            {
-                await itemFactory.MakeReadyAsync(item, cancellationToken);
-            }
-
-            leaseRequest.SetResult(item);
-        }
-        else
-        {
-            pool.Enqueue(item);
-        }
-    }
-
-    public async Task ClearAsync(CancellationToken cancellationToken)
-    {
-        ThrowIfDisposed();
-
-        pool.Clear();
-
-        var itemsRequired = Backlog > initialSize
-            ? Backlog
-            : initialSize;
-
-        var items = CreateItems(itemsRequired);
-
-        var tasks = new List<Task>(items.Count());
-        foreach (var item in items)
-        {
-            // puts items into the pool or hands them off to queued lease requests
-            tasks.Add(ReleaseAsync(item, cancellationToken));
-        }
-
-        await Task.WhenAll(tasks);
-    }
-
     private bool TryAcquireItem([MaybeNullWhen(false)] out TPoolItem item)
     {
-        var dequeued = pool.TryDequeue(out item);
+        var dequeued = items.TryDequeue(out item);
         return dequeued && item is not null
             || TryCreateItem(out item);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private async Task ReadyCheckAsync(
+        TPoolItem item,
+        CancellationToken cancellationToken)
+    {
+        using var timeoutCts = new CancellationTokenSource(readyTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            timeoutCts.Token,
+            cancellationToken);
+
+        cancellationToken = linkedCts.Token;
+
+        if (!await itemFactory.IsReadyAsync(item, cancellationToken))
+        {
+            await itemFactory.MakeReadyAsync(item, cancellationToken);
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -226,7 +274,7 @@ internal sealed class Pool<TPoolItem>
 
                 if (disposeRequired)
                 {
-                    while (pool.TryDequeue(out var item))
+                    while (items.TryDequeue(out var item))
                     {
                         (item as IDisposable)?.Dispose();
                     }

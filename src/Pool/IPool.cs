@@ -10,7 +10,20 @@ public interface IPool<TPoolItem>
     /// <summary>
     /// clears the pool and sets allocated to zero
     /// </summary>
+    Task ClearAsync();
+
+    /// <summary>
+    /// clears the pool and sets allocated to zero
+    /// </summary>
     Task ClearAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// simple lease.
+    /// returns an item from the pool or creates a new item while the pool is not full.
+    /// waits forever.
+    /// </summary>
+    /// <returns>item from the pool</returns>
+    Task<TPoolItem> LeaseAsync();
 
     /// <summary>
     /// simple lease.
@@ -21,13 +34,10 @@ public interface IPool<TPoolItem>
     Task<TPoolItem> LeaseAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// lease with timeout. 
-    /// returns an item from the pool or creates a new item while the pool is not full.
-    /// waits until timeout exceeded and then cancelation token is canceled.
+    /// returns an item to the pool
     /// </summary>
-    /// <param name="timeout">time to wait for available item</param>
-    /// <returns>item from the pool</returns>
-    Task<TPoolItem> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken);
+    /// <param name="item"></param>
+    Task ReleaseAsync(TPoolItem item);
 
     /// <summary>
     /// returns an item to the pool
@@ -38,12 +48,12 @@ public interface IPool<TPoolItem>
     /// <summary>
     /// returns the number of items currently allocated by the pool  
     /// </summary>
-    int Allocated { get; }
+    int ItemsAllocated { get; }
 
     /// <summary>
     /// returns the number of unused, allocated items
     /// </summary>
-    int Available { get; }
+    int ItemsAvailable { get; }
 
     /// <summary>
     /// returns the number of items currently leased
@@ -51,7 +61,7 @@ public interface IPool<TPoolItem>
     int ActiveLeases { get; }
 
     /// <summary>
-    /// returns the number of unsatisfied lease requests
+    /// returns the number of lease requests awaiting fulfillment
     /// </summary>
-    int Backlog { get; }
+    int LeaseBacklog { get; }
 }

@@ -13,19 +13,19 @@ public sealed class PoolTests(IPool<IEcho> pool)
     [Fact]
     public void Allocated_Matches_Min()
     {
-        Assert.Equal(1, pool.Allocated);
+        Assert.Equal(1, pool.ItemsAllocated);
     }
 
     [Fact]
     public void Available_Matches_Allocated()
     {
-        Assert.Equal(pool.Allocated, pool.Available);
+        Assert.Equal(pool.ItemsAllocated, pool.ItemsAvailable);
     }
 
     [Fact]
     public void Backlog_Is_Empty()
     {
-        Assert.Equal(0, pool.Backlog);
+        Assert.Equal(0, pool.LeaseBacklog);
     }
 
     [Fact]
@@ -47,14 +47,14 @@ public sealed class PoolTests(IPool<IEcho> pool)
 
         var task = pool.LeaseAsync(CancellationToken.None);
         Assert.Equal(1, pool.ActiveLeases);
-        Assert.Equal(0, pool.Available);
-        Assert.Equal(1, pool.Backlog);
+        Assert.Equal(0, pool.ItemsAvailable);
+        Assert.Equal(1, pool.LeaseBacklog);
         Assert.False(task.IsCompleted);
 
         await pool.ReleaseAsync(instance1, CancellationToken.None);
         Assert.Equal(1, pool.ActiveLeases);
-        Assert.Equal(0, pool.Available);
-        Assert.Equal(0, pool.Backlog);
+        Assert.Equal(0, pool.ItemsAvailable);
+        Assert.Equal(0, pool.LeaseBacklog);
         Assert.True(task.IsCompleted);
 
         var instance2 = await task;
@@ -83,9 +83,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
         {
             var execption = await Assert
                 .ThrowsAsync<TaskCanceledException>(async () =>
-                    await pool.LeaseAsync(
-                        TimeSpan.FromMilliseconds(10),
-                        CancellationToken.None));
+                    await pool.LeaseAsync(CancellationToken.None));
         }
         finally
         {

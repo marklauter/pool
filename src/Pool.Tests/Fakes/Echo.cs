@@ -5,9 +5,10 @@ internal sealed class Echo
 {
     public bool IsReady { get; private set; }
 
-    public void MakeReady()
+    public Task MakeReadyAsync(CancellationToken cancellationToken)
     {
         IsReady = true;
+        return Task.CompletedTask;
     }
 
     public string Shout(string message)

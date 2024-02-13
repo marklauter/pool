@@ -15,7 +15,9 @@ public sealed class Startup
             .AddInMemoryCollection(new Dictionary<string, string>
             {
                 { "PoolOptions:MinSize", "1" },
-                { "PoolOptions:MaxSize", "1" }
+                { "PoolOptions:MaxSize", "1" },
+                { "PoolOptions:LeaseTimeout", "00:00:00.01" },
+                { "PoolOptions:ReadyTimeout", "00:00:00.01" },
             })
             .Build();
     }

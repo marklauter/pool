@@ -3,7 +3,6 @@
 public interface IEcho
 {
     string Shout(string message);
-
     bool IsReady { get; }
-    void MakeReady();
+    Task MakeReadyAsync(CancellationToken cancellationToken);
 }
