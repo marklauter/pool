@@ -9,17 +9,21 @@ public static class DependencyInjectionExtensions
 {
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddPool<T, TFactoryImplementation>(
+    public static IServiceCollection AddPool<TPoolItem, TFactoryImplementation>(
         this IServiceCollection services,
         IConfiguration configuration)
-        where T : notnull
-        where TFactoryImplementation : class, IPoolItemFactory<T>
+        where TPoolItem : notnull
+        where TFactoryImplementation : class, IPoolItemFactory<TPoolItem>
     {
+        ArgumentNullException.ThrowIfNull(services);
+
+        ArgumentNullException.ThrowIfNull(configuration);
+
         _ = services
             .AddOptions()
             .Configure<PoolOptions>(configuration.GetSection(nameof(PoolOptions)));
-        services.TryAddSingleton<IPoolItemFactory<T>, TFactoryImplementation>();
-        services.TryAddSingleton<IPool<T>, Pool<T>>();
+        services.TryAddSingleton<IPoolItemFactory<TPoolItem>, TFactoryImplementation>();
+        services.TryAddSingleton<IPool<TPoolItem>, Pool<TPoolItem>>();
 
         return services;
     }
@@ -27,10 +31,6 @@ public static class DependencyInjectionExtensions
     /// <summary>
     /// for unit testing
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="services"></param>
-    /// <param name="configuration"></param>
-    /// <returns></returns>
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     internal static IServiceCollection AddTransientPool<T, TFactoryImplementation>(
@@ -39,6 +39,10 @@ public static class DependencyInjectionExtensions
         where T : notnull
         where TFactoryImplementation : class, IPoolItemFactory<T>
     {
+        ArgumentNullException.ThrowIfNull(services);
+
+        ArgumentNullException.ThrowIfNull(configuration);
+
         _ = services
             .AddOptions()
             .Configure<PoolOptions>(configuration.GetSection(nameof(PoolOptions)));

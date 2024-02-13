@@ -3,9 +3,9 @@
 /// <summary>
 /// pool
 /// </summary>
-/// <typeparam name="T"></typeparam>
-public interface IPool<T>
-    where T : notnull
+/// <typeparam name="TPoolItem"></typeparam>
+public interface IPool<TPoolItem>
+    where TPoolItem : notnull
 {
     /// <summary>
     /// clears the pool and sets allocated to zero
@@ -18,7 +18,7 @@ public interface IPool<T>
     /// waits forever.
     /// </summary>
     /// <returns>item from the pool</returns>
-    Task<T> LeaseAsync(CancellationToken cancellationToken);
+    Task<TPoolItem> LeaseAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// lease with timeout. 
@@ -27,13 +27,13 @@ public interface IPool<T>
     /// </summary>
     /// <param name="timeout">time to wait for available item</param>
     /// <returns>item from the pool</returns>
-    Task<T> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken);
+    Task<TPoolItem> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken);
 
     /// <summary>
     /// returns an item to the pool
     /// </summary>
     /// <param name="item"></param>
-    Task ReleaseAsync(T item, CancellationToken cancellationToken);
+    Task ReleaseAsync(TPoolItem item, CancellationToken cancellationToken);
 
     /// <summary>
     /// returns the number of items currently allocated by the pool  
