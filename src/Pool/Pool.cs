@@ -42,7 +42,8 @@ internal sealed class Pool<TPoolItem>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void SetCanceled()
         {
-            if (taskCompletionSource.TrySetCanceled())
+            if (!taskCompletionSource.Task.IsCompletedSuccessfully
+                && taskCompletionSource.TrySetCanceled())
             {
                 Dispose();
             }
