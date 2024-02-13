@@ -5,15 +5,15 @@ using System.Runtime.CompilerServices;
 
 namespace Pool;
 
-internal sealed class Pool<T>
-    : IPool<T>
+internal sealed class Pool<TPoolItem>
+    : IPool<TPoolItem>
     , IDisposable
-    where T : notnull
+    where TPoolItem : notnull
 {
     private sealed class LeaseRequest
         : IDisposable
     {
-        private readonly TaskCompletionSource<T> taskCompletionSource = new();
+        private readonly TaskCompletionSource<TPoolItem> taskCompletionSource = new();
         private readonly CancellationTokenSource? cancellationTokenSource;
         private bool disposed;
 
@@ -28,10 +28,10 @@ internal sealed class Pool<T>
             }
         }
 
-        public Task<T> Task => taskCompletionSource.Task;
+        public Task<TPoolItem> Task => taskCompletionSource.Task;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SetResult(T item)
+        public void SetResult(TPoolItem item)
         {
             if (taskCompletionSource.TrySetResult(item))
             {
@@ -71,14 +71,14 @@ internal sealed class Pool<T>
         }
     }
 
-    private readonly bool disposeRequired = typeof(T)
+    private readonly bool disposeRequired = typeof(TPoolItem)
         .GetInterface(nameof(IDisposable), true) is not null;
     private bool disposed;
     private readonly int maxSize;
     private readonly int initialSize;
-    private readonly ConcurrentQueue<T> pool;
+    private readonly ConcurrentQueue<TPoolItem> pool;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
-    private readonly IPoolItemFactory<T> itemFactory;
+    private readonly IPoolItemFactory<TPoolItem> itemFactory;
 
     public int Allocated { get; private set; }
     public int Available => pool.Count;
@@ -86,7 +86,7 @@ internal sealed class Pool<T>
     public int Backlog => requests.Count;
 
     public Pool(
-        IPoolItemFactory<T> itemFactory,
+        IPoolItemFactory<TPoolItem> itemFactory,
         IOptions<PoolOptions> options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -96,10 +96,10 @@ internal sealed class Pool<T>
         initialSize = initialSize > maxSize ? maxSize : initialSize;
 
         this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
-        pool = new ConcurrentQueue<T>(CreateItems(initialSize));
+        pool = new ConcurrentQueue<TPoolItem>(CreateItems(initialSize));
     }
 
-    private bool TryCreateItem([MaybeNullWhen(false)] out T item)
+    private bool TryCreateItem([MaybeNullWhen(false)] out TPoolItem item)
     {
         item = default;
         lock (this)
@@ -115,7 +115,7 @@ internal sealed class Pool<T>
         return false;
     }
 
-    private IEnumerable<T> CreateItems(int count)
+    private IEnumerable<TPoolItem> CreateItems(int count)
     {
         lock (this)
         {
@@ -128,16 +128,17 @@ internal sealed class Pool<T>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task<T> LeaseAsync(CancellationToken cancellationToken)
+    public Task<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
         return LeaseAsync(Timeout.InfiniteTimeSpan, cancellationToken);
     }
 
-    public async Task<T> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP001:Dispose created", Justification = "leaseRequest is disposed when lease times out or when request is fullfilled")]
+    public async Task<TPoolItem> LeaseAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
 
-        using var leaseRequest = new LeaseRequest(timeout, cancellationToken);
+        var leaseRequest = new LeaseRequest(timeout, cancellationToken);
         if (TryAcquireItem(out var item))
         {
             if (!await itemFactory.IsReadyAsync(item, cancellationToken))
@@ -155,7 +156,7 @@ internal sealed class Pool<T>
         return await leaseRequest.Task;
     }
 
-    public async Task ReleaseAsync(T item, CancellationToken cancellationToken)
+    public async Task ReleaseAsync(TPoolItem item, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
 
@@ -196,7 +197,7 @@ internal sealed class Pool<T>
         await Task.WhenAll(tasks);
     }
 
-    private bool TryAcquireItem([MaybeNullWhen(false)] out T item)
+    private bool TryAcquireItem([MaybeNullWhen(false)] out TPoolItem item)
     {
         var dequeued = pool.TryDequeue(out item);
         return dequeued && item is not null
