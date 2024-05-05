@@ -43,6 +43,7 @@ public interface IPool<TPoolItem>
     /// returns an item to the pool
     /// </summary>
     /// <param name="item"></param>
+    /// <param name="cancellationToken"></param>
     Task ReleaseAsync(TPoolItem item, CancellationToken cancellationToken);
 
     /// <summary>
