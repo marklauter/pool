@@ -13,6 +13,15 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
+
+    - name: Restore dependencies
+      working-directory: src
+      run: dotnet restore
+      
+    - name: Build
+      working-directory: src
+      run: dotnet build --configuration Release --no-restore
+    
     - name: Test
-      working-directory: src/Pool
-      run: dotnet test -c Debug --verbosity normal
+      working-directory: src
+      run: dotnet test pool.sln --no-restore
