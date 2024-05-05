@@ -1,3 +1,4 @@
+![pool logo](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png)
 # Pool
 A general purpose pool for items that may require initialization such as SMTP or database connections.
 
