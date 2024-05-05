@@ -1,11 +1,7 @@
 ﻿namespace Pool;
 
-public interface IPoolItemFactory<T>
-    where T : notnull
+public interface IPoolItemFactory<TPoolItem>
+    where TPoolItem : notnull
 {
-    T Create();
-
-    Task<bool> IsReadyAsync(T item, CancellationToken cancellationToken);
-
-    Task MakeReadyAsync(T item, CancellationToken cancellationToken);
+    TPoolItem CreateItem();
 }

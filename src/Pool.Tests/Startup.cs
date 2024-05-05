@@ -18,12 +18,15 @@ public sealed class Startup
                 { "PoolOptions:MaxSize", "1" },
                 { "PoolOptions:LeaseTimeout", "00:00:00.01" },
                 { "PoolOptions:ReadyTimeout", "00:00:00.01" },
-            })
+            }!)
             .Build();
     }
 
     public void ConfigureServices(IServiceCollection services)
     {
-        _ = services.AddTransientPool<IEcho, EchoFactory>(configuration);
+        _ = services
+            .AddTransientPool<IEcho, EchoFactory>(configuration)
+            .AddReadyCheck<IEcho, EchoFactory>();
+
     }
 }

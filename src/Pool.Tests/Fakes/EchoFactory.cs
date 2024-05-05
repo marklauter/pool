@@ -3,8 +3,10 @@ namespace Pool.Tests.Fakes;
 
 internal sealed class EchoFactory
     : IPoolItemFactory<IEcho>
+    , IReadyCheck<IEcho>
+
 {
-    public IEcho Create()
+    public IEcho CreateItem()
     {
         return new Echo();
     }

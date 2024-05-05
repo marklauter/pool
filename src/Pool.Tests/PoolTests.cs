@@ -25,7 +25,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
     [Fact]
     public void Backlog_Is_Empty()
     {
-        Assert.Equal(0, pool.LeaseBacklog);
+        Assert.Equal(0, pool.QueuedLeases);
     }
 
     [Fact]
@@ -48,13 +48,13 @@ public sealed class PoolTests(IPool<IEcho> pool)
         var task = pool.LeaseAsync(CancellationToken.None);
         Assert.Equal(1, pool.ActiveLeases);
         Assert.Equal(0, pool.ItemsAvailable);
-        Assert.Equal(1, pool.LeaseBacklog);
+        Assert.Equal(1, pool.QueuedLeases);
         Assert.False(task.IsCompleted);
 
         await pool.ReleaseAsync(instance1, CancellationToken.None);
         Assert.Equal(1, pool.ActiveLeases);
         Assert.Equal(0, pool.ItemsAvailable);
-        Assert.Equal(0, pool.LeaseBacklog);
+        Assert.Equal(0, pool.QueuedLeases);
         Assert.True(task.IsCompleted);
 
         var instance2 = await task;

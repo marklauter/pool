@@ -46,22 +46,22 @@ public interface IPool<TPoolItem>
     Task ReleaseAsync(TPoolItem item, CancellationToken cancellationToken);
 
     /// <summary>
-    /// returns the number of items currently allocated by the pool  
+    /// returns how many items are currently allocated by the pool
     /// </summary>
     int ItemsAllocated { get; }
 
     /// <summary>
-    /// returns the number of unused, allocated items
+    /// returns the how many items are of allocated but not leased
     /// </summary>
     int ItemsAvailable { get; }
 
     /// <summary>
-    /// returns the number of items currently leased
+    /// returns how many items are currently leased
     /// </summary>
     int ActiveLeases { get; }
 
     /// <summary>
-    /// returns the number of lease requests awaiting fulfillment
+    /// returns how many lease requests are awaiting fulfillment
     /// </summary>
-    int LeaseBacklog { get; }
+    int QueuedLeases { get; }
 }

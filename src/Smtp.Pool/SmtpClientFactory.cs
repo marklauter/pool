@@ -26,7 +26,7 @@ internal sealed class SmtpClientFactory
         this.credentials = credentials.Value;
     }
 
-    public IMailTransport Create()
+    public IMailTransport CreateItem()
     {
         // todo: a real world example would set values from SmtpClientOptions
         return new SmtpClient();

@@ -102,31 +102,30 @@ internal sealed class Pool<TPoolItem>
     private readonly ConcurrentQueue<TPoolItem> items;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
     private readonly IPoolItemFactory<TPoolItem> itemFactory;
+    private readonly IReadyCheck<TPoolItem>? readyCheck;
     private readonly TimeSpan leaseTimeout;
     private readonly TimeSpan readyTimeout;
+
+    public Pool(
+        IPoolItemFactory<TPoolItem> itemFactory,
+        IReadyCheck<TPoolItem>? readyCheck,
+        IOptions<PoolOptions> options)
+    {
+        this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
+        this.readyCheck = readyCheck ?? throw new ArgumentNullException(nameof(readyCheck));
+
+        maxSize = options?.Value?.MaxSize ?? Int32.MaxValue;
+        initialSize = Math.Min(options?.Value?.MinSize ?? 0, maxSize);
+        leaseTimeout = options?.Value?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
+        readyTimeout = options?.Value?.ReadyTimeout ?? Timeout.InfiniteTimeSpan;
+
+        items = new(CreateItems(initialSize));
+    }
 
     public int ItemsAllocated { get; private set; }
     public int ItemsAvailable => items.Count;
     public int ActiveLeases => ItemsAllocated - ItemsAvailable;
-    public int LeaseBacklog => requests.Count;
-
-    public Pool(
-        IPoolItemFactory<TPoolItem> itemFactory,
-        IOptions<PoolOptions> options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
-        leaseTimeout = options.Value?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
-        readyTimeout = options.Value?.ReadyTimeout ?? Timeout.InfiniteTimeSpan;
-        maxSize = options.Value?.MaxSize ?? Int32.MaxValue;
-        initialSize = options.Value?.MinSize ?? 0;
-        initialSize = initialSize > maxSize
-            ? maxSize
-            : initialSize;
-
-        this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
-        items = new ConcurrentQueue<TPoolItem>(CreateItems(initialSize));
-    }
+    public int QueuedLeases => requests.Count;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Task<TPoolItem> LeaseAsync()
@@ -183,8 +182,8 @@ internal sealed class Pool<TPoolItem>
 
         this.items.Clear();
 
-        var itemsRequired = LeaseBacklog > initialSize
-            ? LeaseBacklog
+        var itemsRequired = QueuedLeases > initialSize
+            ? QueuedLeases
             : initialSize;
 
         var items = CreateItems(itemsRequired);
@@ -207,7 +206,7 @@ internal sealed class Pool<TPoolItem>
             if (ItemsAllocated < maxSize)
             {
                 ++ItemsAllocated;
-                item = itemFactory.Create();
+                item = itemFactory.CreateItem();
                 return true;
             }
         }
@@ -222,7 +221,7 @@ internal sealed class Pool<TPoolItem>
             ItemsAllocated = count;
             for (var i = 0; i < count; i++)
             {
-                yield return itemFactory.Create();
+                yield return itemFactory.CreateItem();
             }
         }
     }
@@ -240,6 +239,11 @@ internal sealed class Pool<TPoolItem>
         TPoolItem item,
         CancellationToken cancellationToken)
     {
+        if (readyCheck is null)
+        {
+            return;
+        }
+
         using var timeoutCts = new CancellationTokenSource(readyTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             timeoutCts.Token,
@@ -247,9 +251,9 @@ internal sealed class Pool<TPoolItem>
 
         cancellationToken = linkedCts.Token;
 
-        if (!await itemFactory.IsReadyAsync(item, cancellationToken))
+        if (!await readyCheck.IsReadyAsync(item, cancellationToken))
         {
-            await itemFactory.MakeReadyAsync(item, cancellationToken);
+            await readyCheck.MakeReadyAsync(item, cancellationToken);
         }
     }
 
