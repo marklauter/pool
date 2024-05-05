@@ -6,14 +6,37 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+		<GenerateDocumentationFile>True</GenerateDocumentationFile>
+
+		<Title>Pool: A generic object pool.</Title>
+		<PackageId>MSL.$(AssemblyName)</PackageId>
+		<ProductName>MSL.Pool</ProductName>
+		<Authors>Mark Lauter</Authors>
+		<Description>Pool: A generic object pool.</Description>
+		<Copyright>Copyright (c) 2024 Mark Lauter</Copyright>
+		<PackageProjectUrl>https://github.com/marklauter/pool</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/marklauter/pool</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageTags>object pool</PackageTags>
+		<NeutralLanguage>en-US</NeutralLanguage>
+		<IncludeContentInPack>true</IncludeContentInPack>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageLicenseFile>LICENSE</PackageLicenseFile>
+		<PackageIcon>pool.png</PackageIcon>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+		<IsTrimmable>True</IsTrimmable>
 		<IsAotCompatible>True</IsAotCompatible>
+		<WarningLevel>9999</WarningLevel>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+		<IsTrimmable>True</IsTrimmable>
 		<IsAotCompatible>True</IsAotCompatible>
+		<WarningLevel>9999</WarningLevel>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -30,6 +53,21 @@
 		<AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
 			<_Parameter1>$(MSBuildProjectName).Tests</_Parameter1>
 		</AssemblyAttribute>
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="plumber.png">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+		<None Include="..\README.md">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+		<None Include="..\LICENSE">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
 	</ItemGroup>
 
 </Project>
