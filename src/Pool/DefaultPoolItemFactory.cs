@@ -2,7 +2,7 @@
 
 namespace Pool;
 
-public sealed class DefaultPoolItemFactory<T>(
+internal sealed class DefaultPoolItemFactory<T>(
     IServiceProvider serviceProvider)
     : IPoolItemFactory<T>
     where T : notnull
