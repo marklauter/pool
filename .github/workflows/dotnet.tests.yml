@@ -20,8 +20,8 @@ jobs:
       
     - name: Build
       working-directory: src
-      run: dotnet build --configuration Release --no-restore
+      run: dotnet build -c Debug --no-restore
     
     - name: Test
       working-directory: src
-      run: dotnet test pool.sln --no-restore
+      run: dotnet test --no-build
