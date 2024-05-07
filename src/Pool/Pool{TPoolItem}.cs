@@ -75,8 +75,7 @@ internal sealed class Pool<TPoolItem>
                     if (timeoutTokenSource is not null)
                     {
                         // Canceling unblocks any awaiters.
-                        // Cancel() will either call SetCanceled() directly if
-                        // there is no linked token source,
+                        // Cancel() will either call SetCanceled() directly if there is no linked token source,
                         // or it will trigger Cancel() on the linked token source,
                         // so the linked token source will not need to be canceled explicitly.
                         timeoutTokenSource.Cancel();
@@ -180,7 +179,7 @@ internal sealed class Pool<TPoolItem>
     {
         ThrowIfDisposed();
 
-        this.items.Clear();
+        ClearQueue();
 
         var itemsRequired = QueuedLeases > initialSize
             ? QueuedLeases
@@ -196,6 +195,19 @@ internal sealed class Pool<TPoolItem>
         }
 
         await Task.WhenAll(tasks);
+    }
+
+    private void ClearQueue()
+    {
+        if (!disposeRequired)
+        {
+            return;
+        }
+
+        while (items.TryDequeue(out var item))
+        {
+            (item as IDisposable)?.Dispose();
+        }
     }
 
     private bool TryCreateItem([MaybeNullWhen(false)] out TPoolItem item)
@@ -276,13 +288,7 @@ internal sealed class Pool<TPoolItem>
                     leaseRequest.Dispose();
                 }
 
-                if (disposeRequired)
-                {
-                    while (items.TryDequeue(out var item))
-                    {
-                        (item as IDisposable)?.Dispose();
-                    }
-                }
+                ClearQueue();
             }
         }
     }

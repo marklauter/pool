@@ -4,9 +4,19 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Pool.DependencyInjection;
-
+/// <summary>
+/// IServiceCollection extensions for registering pool, factory, and ready check.
+/// </summary>
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// AddPool registers <see cref="IPool{TPoolItem}"/> with a custom <see cref="IPoolItemFactory{TPoolItem}"/> implementation.
+    /// </summary>
+    /// <typeparam name="TPoolItem"></typeparam>
+    /// <typeparam name="TFactoryImplementation"></typeparam>
+    /// <param name="services"></param>
+    /// <param name="configuration"></param>
+    /// <returns><see cref="IServiceCollection"/></returns>
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     public static IServiceCollection AddPool<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation>(
@@ -27,6 +37,13 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// AddPool registers <see cref="IPool{TPoolItem}"/> with the default <see cref="IPoolItemFactory{TPoolItem}"/> implementation.
+    /// </summary>
+    /// <typeparam name="TPoolItem"></typeparam>
+    /// <param name="services"></param>
+    /// <param name="configuration"></param>
+    /// <returns><see cref="IServiceCollection"/></returns>
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     public static IServiceCollection AddPoolWithDefaultFactory<TPoolItem>(
@@ -37,23 +54,23 @@ public static class ServiceCollectionExtensions
         return services.AddPool<TPoolItem, DefaultPoolItemFactory<TPoolItem>>(configuration);
     }
 
-    public static IServiceCollection AddDefaultPoolItemFactory<TPoolItem>(this IServiceCollection services)
+    /// <summary>
+    /// AddReadyCheck registers <see cref="IReadyCheck{TPoolItem}"/> with a custom implementation.
+    /// </summary>
+    /// <typeparam name="TPoolItem"></typeparam>
+    /// <typeparam name="TReadyCheckImplementation"></typeparam>
+    /// <param name="services"></param>
+    /// <returns><see cref="IServiceCollection"/></returns>
+    public static IServiceCollection AddReadyCheck<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TReadyCheckImplementation>(this IServiceCollection services)
         where TPoolItem : notnull
+        where TReadyCheckImplementation : class, IReadyCheck<TPoolItem>
     {
-        services.TryAddSingleton<IPoolItemFactory<TPoolItem>, DefaultPoolItemFactory<TPoolItem>>();
-        return services;
-    }
-
-    public static IServiceCollection AddReadyCheck<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TReadyCheck>(this IServiceCollection services)
-        where TPoolItem : notnull
-        where TReadyCheck : class, IReadyCheck<TPoolItem>
-    {
-        services.TryAddSingleton<IReadyCheck<TPoolItem>, TReadyCheck>();
+        services.TryAddSingleton<IReadyCheck<TPoolItem>, TReadyCheckImplementation>();
         return services;
     }
 
     /// <summary>
-    /// for unit testing
+    /// AddTransientPool is for unit testing only.
     /// </summary>
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
