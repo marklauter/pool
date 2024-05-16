@@ -17,8 +17,11 @@ public static class ServiceCollectionExtensions
     /// <param name="services"></param>
     /// <param name="configuration"></param>
     /// <returns><see cref="IServiceCollection"/></returns>
+#if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
+#endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "<Pending>")]
     public static IServiceCollection AddPool<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation>(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -44,7 +47,9 @@ public static class ServiceCollectionExtensions
     /// <param name="services"></param>
     /// <param name="configuration"></param>
     /// <returns><see cref="IServiceCollection"/></returns>
+#if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
+#endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     public static IServiceCollection AddPoolWithDefaultFactory<TPoolItem>(
         this IServiceCollection services,
@@ -72,8 +77,11 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// AddTransientPool is for unit testing only.
     /// </summary>
+#if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
+#endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "<Pending>")]
     internal static IServiceCollection AddTransientPool<T, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation>(
         this IServiceCollection services,
         IConfiguration configuration)
