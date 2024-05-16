@@ -272,15 +272,14 @@ internal sealed class Pool<TPoolItem>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void ThrowIfDisposed()
     {
-#if NET6_0
+#if NET7_0_OR_GREATER
+        ObjectDisposedException.ThrowIf(disposed, this);
+#elif NET6_0_OR_GREATER
         if (disposed)
         {
             throw new ObjectDisposedException(nameof(Pool<TPoolItem>));
         }
-#elif NET7_0_OR_GREATER
-        ObjectDisposedException.ThrowIf(disposed, this);
 #endif
-
     }
 
     private void Dispose(bool disposing)
