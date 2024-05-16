@@ -1,8 +1,8 @@
 name: .NET Publish
 
 on:
-  push:
-    branches: [ "main" ]
+  release:
+    types: [published]
 permissions:
   contents: write
   packages: write
@@ -20,11 +20,11 @@ jobs:
     - name: Restore dependencies
       working-directory: src
       run: dotnet restore
-      
+
     - name: Build
       working-directory: src
       run: dotnet build -c Debug --no-restore
-    
+
     - name: Test
       working-directory: src
       run: dotnet test --no-build
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Increment Commit Tag
+      - name: Get Build Version
         id: version-tag
         run: |
           current_tag=$(git tag --sort=committerdate | tail -1)
@@ -46,11 +46,7 @@ jobs:
           major=$(echo $current_tag | cut -d "." -f 1 | cut -d "v" -f 2)
           minor=$(echo $current_tag | cut -d "." -f 2)
           patch=$(echo $current_tag | cut -d "." -f 3)
-          new_patch=$((patch + 1))
-          new_tag="v$major.$minor.$new_patch"
-          package_version="$major.$minor.$new_patch"
-          git tag $new_tag
-          git push --tags
+          package_version="$major.$minor.$patch"
           echo "PACKAGE_VERSION=$package_version" >> $GITHUB_OUTPUT
   
   publish:
@@ -68,7 +64,7 @@ jobs:
     - name: Echo Package Version
       run: echo ${{ needs.version.outputs.PACKAGE_VERSION }}
 
-    - name: Restore dependencies
+    - name: Restore
       working-directory: src/Pool
       run: dotnet restore
 
