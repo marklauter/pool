@@ -1,4 +1,10 @@
+## Build Status
+[![.NET Test](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml)
+[![.NET Publish](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml)
+##
+
 ![pool logo](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png)
+
 # Pool
 A general purpose pool for items that may require initialization such as SMTP or database connections.
 
