@@ -1,18 +1,47 @@
-﻿namespace Pool.Tests.Fakes;
+﻿using System.Runtime.CompilerServices;
+
+namespace Pool.Tests.Fakes;
 
 internal sealed class Echo
     : IEcho
+    , IDisposable
 {
+    private bool disposed;
+
     public bool IsReady { get; private set; }
 
     public Task MakeReadyAsync(CancellationToken cancellationToken)
     {
+        ThrowIfDisposed();
+
         IsReady = true;
         return Task.CompletedTask;
     }
 
-    public string Shout(string message)
+    public string Shout(string message) => message;
+
+    public void Dispose()
     {
-        return message;
+        if (disposed)
+        {
+            return;
+        }
+
+        disposed = true;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ThrowIfDisposed()
+    {
+#if NET7_0_OR_GREATER
+#pragma warning disable IDE0022 // Use expression body for method
+        ObjectDisposedException.ThrowIf(disposed, nameof(Echo));
+#pragma warning restore IDE0022 // Use expression body for method
+#elif NET6_0_OR_GREATER                                                      
+        if (disposed)
+        {
+            throw new ObjectDisposedException(nameof(Echo));
+        }
+#endif
     }
 }

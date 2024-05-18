@@ -7,3 +7,4 @@ using System.Diagnostics.CodeAnalysis;
 
 [assembly: SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores", Justification = "unit test naming")]
 [assembly: SuppressMessage("Style", "IDE1006:Naming Styles", Justification = "unit test naming")]
+[assembly: SuppressMessage("CodeQuality", "IDE0079:Remove unnecessary suppression", Justification = "not unnecessary")]

@@ -5,28 +5,16 @@ namespace Pool.Tests;
 public sealed class PoolTests(IPool<IEcho> pool)
 {
     [Fact]
-    public void Pool_Is_Injected()
-    {
-        Assert.NotNull(pool);
-    }
+    public void Pool_Is_Injected() => Assert.NotNull(pool);
 
     [Fact]
-    public void Allocated_Matches_Min()
-    {
-        Assert.Equal(1, pool.ItemsAllocated);
-    }
+    public void Allocated_Matches_Min() => Assert.Equal(1, pool.ItemsAllocated);
 
     [Fact]
-    public void Available_Matches_Allocated()
-    {
-        Assert.Equal(pool.ItemsAllocated, pool.ItemsAvailable);
-    }
+    public void Available_Matches_Allocated() => Assert.Equal(pool.ItemsAllocated, pool.ItemsAvailable);
 
     [Fact]
-    public void Backlog_Is_Empty()
-    {
-        Assert.Equal(0, pool.QueuedLeases);
-    }
+    public void Backlog_Is_Empty() => Assert.Equal(0, pool.QueuedLeases);
 
     [Fact]
     public async Task Lease_And_Release()

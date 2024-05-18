@@ -9,9 +9,7 @@ public sealed class Startup
 {
     private readonly IConfiguration configuration;
 
-    public Startup()
-    {
-        configuration = new ConfigurationBuilder()
+    public Startup() => configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string>
             {
                 { "PoolOptions:MinSize", "1" },
@@ -20,13 +18,8 @@ public sealed class Startup
                 { "PoolOptions:ReadyTimeout", "00:00:00.01" },
             }!)
             .Build();
-    }
 
-    public void ConfigureServices(IServiceCollection services)
-    {
-        _ = services
+    public void ConfigureServices(IServiceCollection services) => _ = services
             .AddTransientPool<IEcho, EchoFactory>(configuration)
             .AddReadyCheck<IEcho, EchoFactory>();
-
-    }
 }
