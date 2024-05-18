@@ -1,10 +1,10 @@
 ﻿namespace Pool;
 
 /// <summary>
-/// IReadyCheck for checking if a pool item is ready, and making it ready if it is not.
+/// IPoolItemReadyCheck for checking if a pool item is ready, and making it ready if it is not.
 /// </summary>
 /// <typeparam name="TPoolItem"></typeparam>
-public interface IReadyCheck<TPoolItem>
+public interface IPoolItemReadyCheck<TPoolItem>
     where TPoolItem : notnull
 {
     /// <summary>
@@ -13,7 +13,7 @@ public interface IReadyCheck<TPoolItem>
     /// <param name="item"></param>
     /// <param name="cancellationToken"></param>
     /// <returns><see cref="Boolean"/> true if the pool item is ready.</returns>
-    Task<bool> IsReadyAsync(TPoolItem item, CancellationToken cancellationToken);
+    ValueTask<bool> IsReadyAsync(TPoolItem item, CancellationToken cancellationToken);
 
     /// <summary>
     /// MakeReadyAsync makes the pool item ready before the pool leases it to the caller.

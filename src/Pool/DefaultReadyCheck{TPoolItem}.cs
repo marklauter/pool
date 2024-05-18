@@ -1,9 +1,9 @@
 ﻿namespace Pool;
 
-internal sealed class DefaultReadyCheck<TPoolItem> : IReadyCheck<TPoolItem>
+internal sealed class DefaultReadyCheck<TPoolItem> : IPoolItemReadyCheck<TPoolItem>
     where TPoolItem : notnull
 {
-    public Task<bool> IsReadyAsync(TPoolItem item, CancellationToken cancellationToken) => Task.FromResult(true);
+    public ValueTask<bool> IsReadyAsync(TPoolItem item, CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public Task MakeReadyAsync(TPoolItem item, CancellationToken cancellationToken) => Task.CompletedTask;
 }

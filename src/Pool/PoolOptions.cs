@@ -6,6 +6,13 @@
 public sealed class PoolOptions
 {
     /// <summary>
+    /// NeedsReadyCheck gets or sets a value indicating whether to perform a ready check before leasing an item from the pool.
+    /// If true, an <see cref="IPoolItemReadyCheck{TPoolItem}"/> implementation has to be registered with the service provider.
+    /// </summary>
+    /// <remarks>Defaults to false.</remarks>
+    public bool NeedsReadyCheck { get; init; }
+
+    /// <summary>
     /// MinSize gets or sets the minimum number of items in the pool.
     /// </summary>
     /// <remarks>Defaults to zero.</remarks>

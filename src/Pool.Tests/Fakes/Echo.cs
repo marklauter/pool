@@ -8,13 +8,13 @@ internal sealed class Echo
 {
     private bool disposed;
 
-    public bool IsReady { get; private set; }
+    public bool IsConnected { get; private set; }
 
-    public Task MakeReadyAsync(CancellationToken cancellationToken)
+    public Task ConnectAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
 
-        IsReady = true;
+        IsConnected = true;
         return Task.CompletedTask;
     }
 

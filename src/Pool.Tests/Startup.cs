@@ -12,6 +12,7 @@ public sealed class Startup
     public Startup() => configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string>
             {
+                { "PoolOptions:NeedsReadyCheck", "true" },
                 { "PoolOptions:MinSize", "1" },
                 { "PoolOptions:MaxSize", "1" },
                 { "PoolOptions:LeaseTimeout", "00:00:00.01" },
@@ -20,5 +21,5 @@ public sealed class Startup
             .Build();
 
     public void ConfigureServices(IServiceCollection services) => _ = services
-        .AddTransientPool<IEcho, EchoFactory, EchoFactory>(configuration);
+        .AddTestPool<IEcho, EchoFactory, EchoFactory>(configuration);
 }

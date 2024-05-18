@@ -57,7 +57,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
     {
         var instance = await pool.LeaseAsync(CancellationToken.None);
 
-        Assert.True(instance.IsReady);
+        Assert.True(instance.IsConnected);
 
         await pool.ReleaseAsync(instance, CancellationToken.None);
     }

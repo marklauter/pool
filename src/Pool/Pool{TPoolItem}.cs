@@ -94,26 +94,30 @@ internal sealed class Pool<TPoolItem>
     private readonly bool isPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
     private readonly int maxSize;
     private readonly int initialSize;
+    private readonly bool needsReadyCheck;
     private readonly ConcurrentQueue<TPoolItem> items;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
     private readonly IPoolItemFactory<TPoolItem> itemFactory;
-    private readonly IReadyCheck<TPoolItem>? readyCheck;
+    private readonly IPoolItemReadyCheck<TPoolItem>? readyCheck;
     private readonly TimeSpan leaseTimeout;
     private readonly TimeSpan readyTimeout;
     private bool disposed;
 
     public Pool(
         IPoolItemFactory<TPoolItem> itemFactory,
-        IReadyCheck<TPoolItem> readyCheck,
+        IPoolItemReadyCheck<TPoolItem>? readyCheck,
         PoolOptions options)
     {
-        this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
-        this.readyCheck = readyCheck ?? throw new ArgumentNullException(nameof(readyCheck));
-
+        needsReadyCheck = options?.NeedsReadyCheck ?? readyCheck is not null;
         maxSize = options?.MaxSize ?? Int32.MaxValue;
         initialSize = Math.Min(options?.MinSize ?? 0, maxSize);
         leaseTimeout = options?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
         readyTimeout = options?.ReadyTimeout ?? Timeout.InfiniteTimeSpan;
+
+        this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
+        this.readyCheck = needsReadyCheck && readyCheck is null
+            ? throw new ArgumentNullException(nameof(readyCheck))
+            : readyCheck;
 
         items = new(CreateItems(initialSize));
     }
@@ -124,15 +128,19 @@ internal sealed class Pool<TPoolItem>
     public int QueuedLeases => requests.Count;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task<TPoolItem> LeaseAsync() => LeaseAsync(CancellationToken.None);
+    public ValueTask<TPoolItem> LeaseAsync() => LeaseAsync(CancellationToken.None);
 
-    public async Task<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
+    public async ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
 
         if (TryAcquireItem(out var item))
         {
-            await ReadyCheckAsync(item, cancellationToken);
+            if (needsReadyCheck)
+            {
+                await ReadyCheckAsync(readyCheck!, readyTimeout, item, cancellationToken);
+            }
+
             return item;
         }
 
@@ -152,7 +160,11 @@ internal sealed class Pool<TPoolItem>
 
         if (requests.TryDequeue(out var leaseRequest))
         {
-            await ReadyCheckAsync(item, cancellationToken);
+            if (needsReadyCheck)
+            {
+                await ReadyCheckAsync(readyCheck!, readyTimeout, item, cancellationToken);
+            }
+
             leaseRequest.TaskSetResult(item);
             return;
         }
@@ -214,8 +226,7 @@ internal sealed class Pool<TPoolItem>
     private bool TryAcquireItem([MaybeNullWhen(false)] out TPoolItem item)
     {
         var dequeued = items.TryDequeue(out item);
-        return dequeued && item is not null
-            || TryCreateItem(out item);
+        return dequeued && item is not null || TryCreateItem(out item);
     }
 
     private bool TryCreateItem([MaybeNullWhen(false)] out TPoolItem item)
@@ -223,27 +234,23 @@ internal sealed class Pool<TPoolItem>
         item = default;
         lock (this)
         {
-            if (ItemsAllocated < maxSize)
+            if (ItemsAllocated >= maxSize)
             {
-                ++ItemsAllocated;
-                item = itemFactory.CreateItem();
-                return true;
+                return false;
             }
-        }
 
-        return false;
+            ++ItemsAllocated;
+            item = itemFactory.CreateItem();
+            return true;
+        }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private async Task ReadyCheckAsync(
+    private static async Task ReadyCheckAsync(
+        IPoolItemReadyCheck<TPoolItem> readyCheck,
+        TimeSpan readyTimeout,
         TPoolItem item,
         CancellationToken cancellationToken)
     {
-        if (readyCheck is null)
-        {
-            return;
-        }
-
         using var timeoutCts = new CancellationTokenSource(readyTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             timeoutCts.Token,

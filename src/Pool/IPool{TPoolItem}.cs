@@ -23,7 +23,7 @@ public interface IPool<TPoolItem>
     /// waits forever.
     /// </summary>
     /// <returns>item from the pool</returns>
-    Task<TPoolItem> LeaseAsync();
+    ValueTask<TPoolItem> LeaseAsync();
 
     /// <summary>
     /// simple lease.
@@ -31,7 +31,7 @@ public interface IPool<TPoolItem>
     /// waits forever.
     /// </summary>
     /// <returns>item from the pool</returns>
-    Task<TPoolItem> LeaseAsync(CancellationToken cancellationToken);
+    ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// returns an item to the pool

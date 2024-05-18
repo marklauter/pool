@@ -41,9 +41,9 @@ one of the `IServiceCollection` extensiosns from the `Pool.DependencyInjection` 
 See [Dependency Injection](##dependency-injection) for more information.
 
 `IPool<TPoolItem>` provides three methods with convenient overloads:
-- `LeaseAsync` - returns an item from the pool
-- `ReleaseAsync` - returns an item from the pool
-- `ClearAsync` - clears the pool, disposes the items as required, and reinitializes the pool with min items
+- `LeaseAsync` - returns an item from the pool and optionally [performs a ready check](##pool-item-ready-checker)
+- `ReleaseAsync` - returns an item to the pool
+- `ClearAsync` - clears the pool, disposes the items as required, and reinitializes the pool with `PoolOptions.MinSize` items
 
 The caller is responsible for calling `ReleaseAsync` when it no longer needs the item.
 I recommend using try / finally.
@@ -61,13 +61,13 @@ finally
 
 `Pool<TPoolItem>` has three dependencies injected into the constructor:
 - `IPoolItemFactory<TPoolItem>`
-- `IReadyCheck<TPoolItem>`
+- `IPoolItemReadyCheck<TPoolItem>`
 - `PoolOptions`
 
 See [Dependency Injection](##dependency-injection) for more information.
 
 The pool will use an [item factory](##pool-item-factory) to create new items as required.
-During the lease operation, the pool invokes a [ready checker](##ready-checker) 
+During the lease operation, the pool invokes a [ready checker](##pool-item-ready-checker) 
 to initialize an item that isn't ready.
 
 ## Pool Item Factory
@@ -78,10 +78,10 @@ To use the default implementation, call `AddPool<TPoolItem>` or
 when registering the pool with the service collection.
 See [Dependency Injection](##dependency-injection) for more information.
 
-## Ready Checker
-Implement the `IReadyCheck<TPoolItem>` interface to ensure an item is ready for use when it's leased from the pool.
+## Pool Item Ready Checker
+Implement the `IPoolItemReadyCheck<TPoolItem>` interface to ensure an item is ready for use when it's leased from the pool.
 
-There's a default `IReadyCheck<TPoolItem>` implementation that always returns 
+There's a default `IPoolItemReadyCheck<TPoolItem>` implementation that always returns 
 `true` from the `IsReadyAsync` method.
 To use the default implementation with a custom item factory, 
 call `AddPool<TPoolItem>` 
@@ -100,7 +100,7 @@ you can connect and authenticate to the SMTP server.
 
 Sample SMTP connection ready check implementation using `MailKit.IMailTransport`:
 ```csharp
-public async Task<bool> IsReadyAsync(IMailTransport item, CancellationToken cancellationToken) =>
+public async ValueTask<bool> IsReadyAsync(IMailTransport item, CancellationToken cancellationToken) =>
     item.IsConnected
     && item.IsAuthenticated
     && await NoOpAsync(item, cancellationToken);
@@ -116,15 +116,26 @@ public async Task MakeReadyAsync(IMailTransport item, CancellationToken cancella
 ```
 ## Dependency Injection
 The `ServiceCollectionExtensions` class is in the `Pool.DependencyInjection` namespace.
-- Call `AddPool<TPoolItem>` to register a singleton pool with the default item factory and ready check implementations.
-- Call `AddPool<TPoolItem, TFactoryImplementation, TReadyCheckImplementation>` to register a singleton pool with your own item factory and ready check implementations.
-- Call `AddPoolWithDefaultFactory<TPoolItem, TReadyCheckImplementation>` to register a singleton pool with the default item factory and a custom ready check implementation. The default factory uses the service provider to construct pool items.
-- Call `AddPoolWithDefaultReadyCheck<TPoolItem, TFactoryImplementation>` to register a singleton pool with the default ready check and a custom item factory implementation.
+- Call `AddPool<TPoolItem>` to register a singleton pool. Pass `Action<PoolRegistrationOptions>` to specify whether or not to register the default item factory and ready check implementations.
+- Call `AddPoolItemReadyCheck<TPoolItem, TReadyCheckImplementation>` to register a singleton ready check implementation.
+- Call `AddPoolItemFactory<TPoolItem, TFactoryImplementation>` to register a singleton item factory implementation.
+
+### Sample `AddPool<TPoolItem>` Registration
+```csharp
+services.AddPool<IMailTransport>(configuration, options =>
+{
+    // use default factory, which uses service provider to construct pool items
+    options.RegisterDefaultFactory = true;
+});
+```
 
 ## Dev Log
 - 12 FEB 2024 - started SMTP pool at the end of 2023, but got busy with other stuff. Will take it up again soon though because I need it for a work project.
 - 05 MAY 2024 - prepping for publish to Nuget by supporting dotnet 6, 7 and 8.
 - 06 MAY 2024 - published to Nuget.
 - 17 MAY 2024 - added tests for out of order dispose scenarios.
-- 17 MA& 2024 - updated readme.md
-- 17 MA& 2024 - Sample/Smtp.Pool is still a work in progress.
+- 17 MAY 2024 - updated readme.md
+- 17 MAY 2024 - Sample/Smtp.Pool is still a work in progress.
+- 18 MAY 2024 :ALERT: breaking changes.
+- 18 MAY 2024 - refactored dependency injection extensions. 
+- 18 MAY 2024 - refactored to use ValueTask on LeaseAsync method. 
