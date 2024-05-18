@@ -9,11 +9,11 @@
 
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
 
-		<Title>Pool: A generic object pool.</Title>
+		<Title>Pool: An object pool.</Title>
 		<PackageId>MSL.$(AssemblyName)</PackageId>
-		<ProductName>MSL.Pool</ProductName>
+		<ProductName>MSL.$(AssemblyName)</ProductName>
 		<Authors>Mark Lauter</Authors>
-		<Description>Pool: A generic object pool.</Description>
+		<Description>Pool: An object pool.</Description>
 		<Copyright>Copyright (c) 2024 Mark Lauter</Copyright>
 		<PackageProjectUrl>https://github.com/marklauter/pool</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/marklauter/pool</RepositoryUrl>
