@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Options;
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
@@ -66,36 +65,33 @@ internal sealed class Pool<TPoolItem>
 
         private void Dispose(bool disposing)
         {
-            if (!disposed)
+            if (disposed)
             {
-                disposed = true;
+                return;
+            }
 
-                if (disposing)
+            disposed = true;
+
+            if (disposing)
+            {
+                if (timeoutTokenSource is not null)
                 {
-                    if (timeoutTokenSource is not null)
-                    {
-                        // Canceling unblocks any awaiters.
-                        // Cancel() will either call SetCanceled() directly if there is no linked token source,
-                        // or it will trigger Cancel() on the linked token source,
-                        // so the linked token source will not need to be canceled explicitly.
-                        timeoutTokenSource.Cancel();
-                        timeoutTokenSource.Dispose();
-                    }
-
-                    linkedTokenSource?.Dispose();
+                    // Canceling unblocks any awaiters.
+                    // Cancel() will either call SetCanceled() directly if there is no linked token source,
+                    // or it will trigger Cancel() on the linked token source,
+                    // so the linked token source will not need to be canceled explicitly.
+                    timeoutTokenSource.Cancel();
+                    timeoutTokenSource.Dispose();
                 }
+
+                linkedTokenSource?.Dispose();
             }
         }
 
-        public void Dispose()
-        {
-            Dispose(disposing: true);
-        }
+        public void Dispose() => Dispose(disposing: true);
     }
 
-    private readonly bool disposeRequired = typeof(TPoolItem)
-        .GetInterface(nameof(IDisposable), true) is not null;
-    private bool disposed;
+    private readonly bool isPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
     private readonly int maxSize;
     private readonly int initialSize;
     private readonly ConcurrentQueue<TPoolItem> items;
@@ -104,19 +100,20 @@ internal sealed class Pool<TPoolItem>
     private readonly IReadyCheck<TPoolItem>? readyCheck;
     private readonly TimeSpan leaseTimeout;
     private readonly TimeSpan readyTimeout;
+    private bool disposed;
 
     public Pool(
         IPoolItemFactory<TPoolItem> itemFactory,
-        IReadyCheck<TPoolItem>? readyCheck,
-        IOptions<PoolOptions> options)
+        IReadyCheck<TPoolItem> readyCheck,
+        PoolOptions options)
     {
         this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
         this.readyCheck = readyCheck ?? throw new ArgumentNullException(nameof(readyCheck));
 
-        maxSize = options?.Value?.MaxSize ?? Int32.MaxValue;
-        initialSize = Math.Min(options?.Value?.MinSize ?? 0, maxSize);
-        leaseTimeout = options?.Value?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
-        readyTimeout = options?.Value?.ReadyTimeout ?? Timeout.InfiniteTimeSpan;
+        maxSize = options?.MaxSize ?? Int32.MaxValue;
+        initialSize = Math.Min(options?.MinSize ?? 0, maxSize);
+        leaseTimeout = options?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
+        readyTimeout = options?.ReadyTimeout ?? Timeout.InfiniteTimeSpan;
 
         items = new(CreateItems(initialSize));
     }
@@ -127,10 +124,7 @@ internal sealed class Pool<TPoolItem>
     public int QueuedLeases => requests.Count;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task<TPoolItem> LeaseAsync()
-    {
-        return LeaseAsync(CancellationToken.None);
-    }
+    public Task<TPoolItem> LeaseAsync() => LeaseAsync(CancellationToken.None);
 
     public async Task<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
@@ -148,10 +142,7 @@ internal sealed class Pool<TPoolItem>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task ReleaseAsync(TPoolItem item)
-    {
-        return ReleaseAsync(item, CancellationToken.None);
-    }
+    public Task ReleaseAsync(TPoolItem item) => ReleaseAsync(item, CancellationToken.None);
 
     public async Task ReleaseAsync(
         TPoolItem item,
@@ -170,10 +161,7 @@ internal sealed class Pool<TPoolItem>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task ClearAsync()
-    {
-        return ClearAsync(CancellationToken.None);
-    }
+    public Task ClearAsync() => ClearAsync(CancellationToken.None);
 
     public async Task ClearAsync(CancellationToken cancellationToken)
     {
@@ -199,7 +187,7 @@ internal sealed class Pool<TPoolItem>
 
     private void ClearQueue()
     {
-        if (!disposeRequired)
+        if (!isPoolItemDisposable)
         {
             return;
         }
@@ -273,8 +261,10 @@ internal sealed class Pool<TPoolItem>
     private void ThrowIfDisposed()
     {
 #if NET7_0_OR_GREATER
-        ObjectDisposedException.ThrowIf(disposed, this);
-#elif NET6_0_OR_GREATER
+#pragma warning disable IDE0022 // Use expression body for method
+        ObjectDisposedException.ThrowIf(disposed, nameof(Pool<TPoolItem>));
+#pragma warning restore IDE0022 // Use expression body for method
+#elif NET6_0_OR_GREATER                                                      
         if (disposed)
         {
             throw new ObjectDisposedException(nameof(Pool<TPoolItem>));
@@ -284,24 +274,23 @@ internal sealed class Pool<TPoolItem>
 
     private void Dispose(bool disposing)
     {
-        if (!disposed)
+        if (disposed)
         {
-            disposed = true;
+            return;
+        }
 
-            if (disposing)
+        disposed = true;
+
+        if (disposing)
+        {
+            while (requests.TryDequeue(out var leaseRequest))
             {
-                while (requests.TryDequeue(out var leaseRequest))
-                {
-                    leaseRequest.Dispose();
-                }
-
-                ClearQueue();
+                leaseRequest.Dispose();
             }
+
+            ClearQueue();
         }
     }
 
-    public void Dispose()
-    {
-        Dispose(disposing: true);
-    }
+    public void Dispose() => Dispose(disposing: true);
 }
