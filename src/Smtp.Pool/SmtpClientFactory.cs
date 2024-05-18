@@ -30,11 +30,13 @@ internal sealed class SmtpClientFactory
         // todo: a real world example would set values from SmtpClientOptions
         new SmtpClient();
 
-    public async Task<bool> IsReadyAsync(IMailTransport item, CancellationToken cancellationToken) => item.IsConnected
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "it's part of the interface")]
+    public async Task<bool> IsReadyAsync(IMailTransport item, CancellationToken cancellationToken) =>
+            item.IsConnected
             && item.IsAuthenticated
             && await NoOpAsync(item, cancellationToken);
 
-    private async Task<bool> NoOpAsync(IMailTransport item, CancellationToken cancellationToken)
+    private static async Task<bool> NoOpAsync(IMailTransport item, CancellationToken cancellationToken)
     {
         try
         {

@@ -20,6 +20,5 @@ public sealed class Startup
             .Build();
 
     public void ConfigureServices(IServiceCollection services) => _ = services
-            .AddTransientPool<IEcho, EchoFactory>(configuration)
-            .AddReadyCheck<IEcho, EchoFactory>();
+        .AddTransientPool<IEcho, EchoFactory, EchoFactory>(configuration);
 }

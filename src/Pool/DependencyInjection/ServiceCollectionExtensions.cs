@@ -83,7 +83,11 @@ public static class ServiceCollectionExtensions
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
 #endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddPoolWithDefaultFactory<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TReadyCheckImplementation>(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddPoolWithDefaultFactory<
+        TPoolItem,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TReadyCheckImplementation>(
+        this IServiceCollection services,
+        IConfiguration configuration)
         where TPoolItem : notnull
         where TReadyCheckImplementation : class, IReadyCheck<TPoolItem> =>
             services.AddPool<TPoolItem, DefaultPoolItemFactory<TPoolItem>, TReadyCheckImplementation>(configuration);
@@ -100,25 +104,14 @@ public static class ServiceCollectionExtensions
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
 #endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddPoolWithDefaultReadyCheck<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation>(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddPoolWithDefaultReadyCheck<
+        TPoolItem,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation>(
+        this IServiceCollection services,
+        IConfiguration configuration)
         where TPoolItem : notnull
         where TFactoryImplementation : class, IPoolItemFactory<TPoolItem> =>
             services.AddPool<TPoolItem, TFactoryImplementation, DefaultReadyCheck<TPoolItem>>(configuration);
-
-    /// <summary>
-    /// AddReadyCheck registers <see cref="IReadyCheck{TPoolItem}"/> with a custom implementation.
-    /// </summary>
-    /// <typeparam name="TPoolItem"></typeparam>
-    /// <typeparam name="TReadyCheckImplementation"><see cref="IReadyCheck{TPoolItem}"/></typeparam>
-    /// <param name="services"></param>
-    /// <returns><see cref="IServiceCollection"/></returns>
-    public static IServiceCollection AddReadyCheck<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TReadyCheckImplementation>(this IServiceCollection services)
-        where TPoolItem : notnull
-        where TReadyCheckImplementation : class, IReadyCheck<TPoolItem>
-    {
-        services.TryAddSingleton<IReadyCheck<TPoolItem>, TReadyCheckImplementation>();
-        return services;
-    }
 
     /// <summary>
     /// AddTransientPool is for unit testing only.
@@ -128,18 +121,23 @@ public static class ServiceCollectionExtensions
 #endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "the case is handled in the conditional compile directives above")]
-    internal static IServiceCollection AddTransientPool<T, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation>(
+    internal static IServiceCollection AddTransientPool<
+        TPoolItem,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TReadyCheckImplementation>(
         this IServiceCollection services,
         IConfiguration configuration)
-        where T : notnull
-        where TFactoryImplementation : class, IPoolItemFactory<T>
+        where TPoolItem : notnull
+        where TFactoryImplementation : class, IPoolItemFactory<TPoolItem>
+        where TReadyCheckImplementation : class, IReadyCheck<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.TryAddSingleton(configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>() ?? new PoolOptions());
-        services.TryAddTransient<IPoolItemFactory<T>, TFactoryImplementation>();
-        services.TryAddTransient<IPool<T>, Pool<T>>();
+        services.TryAddTransient<IPoolItemFactory<TPoolItem>, TFactoryImplementation>();
+        services.TryAddTransient<IReadyCheck<TPoolItem>, TReadyCheckImplementation>();
+        services.TryAddTransient<IPool<TPoolItem>, Pool<TPoolItem>>();
 
         return services;
     }
