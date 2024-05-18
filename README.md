@@ -24,9 +24,9 @@ Pooled items are placed on a queue.
 
 When a lease is requested, the pool attempts to dequeue an item. 
 If an item is returned from the queue, the item is returned on a task.
-However, if the item queue is empty, the pool will attempt to create a new item to fullfill the lease request.
-If the pool has reached its allocation limit, the pool enqueues the lease request 
-and the lease request's `TaskCompletionSource.Task` is returned to the caller.
+However, if the item queue is empty, the pool attempts to create a new item to fullfill the lease request.
+If the pool has reached its allocation limit, the pool enqueues a new lease request object, and 
+returns the least request's `TaskCompletionSource.Task` to the caller.
 
 The caller will block on await until timing out, or until an item is released back to the pool. 
 First, the release operation attempts to dequeue an active lease request.
