@@ -26,18 +26,13 @@ internal sealed class SmtpClientFactory
         this.credentials = credentials.Value;
     }
 
-    public IMailTransport CreateItem()
-    {
+    public IMailTransport CreateItem() =>
         // todo: a real world example would set values from SmtpClientOptions
-        return new SmtpClient();
-    }
+        new SmtpClient();
 
-    public async Task<bool> IsReadyAsync(IMailTransport item, CancellationToken cancellationToken)
-    {
-        return item.IsConnected
+    public async Task<bool> IsReadyAsync(IMailTransport item, CancellationToken cancellationToken) => item.IsConnected
             && item.IsAuthenticated
             && await NoOpAsync(item, cancellationToken);
-    }
 
     private async Task<bool> NoOpAsync(IMailTransport item, CancellationToken cancellationToken)
     {
