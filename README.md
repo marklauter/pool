@@ -6,7 +6,12 @@
 ![pool logo](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png)
 
 # Pool
-An object pool. Allows for, but does not require, ready check with initialization on ready check failure. Common use cases include SMTP or database connections.
+`IPool<TPoolItem>` is an object pool that uses the lease / release pattern.
+It allows for, but does not require, [ready checks](##pool-item-ready-checker) 
+with initialization on ready check failure. 
+Common use cases for [ready checks](##pool-item-ready-checker) 
+include objects that benefit from long-lived connections, 
+like SMTP or database connections.
 
 ## Github Repository
 [https://github.com/marklauter/pool](https://github.com/marklauter/pool)
