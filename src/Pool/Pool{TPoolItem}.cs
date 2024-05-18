@@ -198,22 +198,6 @@ internal sealed class Pool<TPoolItem>
         }
     }
 
-    private bool TryCreateItem([MaybeNullWhen(false)] out TPoolItem item)
-    {
-        item = default;
-        lock (this)
-        {
-            if (ItemsAllocated < maxSize)
-            {
-                ++ItemsAllocated;
-                item = itemFactory.CreateItem();
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private IEnumerable<TPoolItem> CreateItems(int count)
     {
         lock (this)
@@ -232,6 +216,22 @@ internal sealed class Pool<TPoolItem>
         var dequeued = items.TryDequeue(out item);
         return dequeued && item is not null
             || TryCreateItem(out item);
+    }
+
+    private bool TryCreateItem([MaybeNullWhen(false)] out TPoolItem item)
+    {
+        item = default;
+        lock (this)
+        {
+            if (ItemsAllocated < maxSize)
+            {
+                ++ItemsAllocated;
+                item = itemFactory.CreateItem();
+                return true;
+            }
+        }
+
+        return false;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
