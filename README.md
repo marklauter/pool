@@ -6,26 +6,125 @@
 ![pool logo](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png)
 
 # Pool
-A general purpose pool for items that may require initialization such as SMTP or database connections.
+An object pool. Allows for, but does not require, ready check with initialization on ready check failure. Common use cases include SMTP or database connections.
 
-## Lease / Release Pattern
-Pooled items are placed on a queue. When a lease is requested, the pool attempts to dequeue an item. If it can, the item is returned on a task. If the item queue is empty, and the pool size is maxed out, then the lease request is queued and the lease request's TaskCompletionSource.Task is returned to the caller. The caller will block on await until timing out, or until another thread releases an item by calling Release, which scans the lease request queue for active requests before pushing the item back onto item queue.
+## Github Repository
+[https://github.com/marklauter/pool](https://github.com/marklauter/pool)
 
-## Pool Item Factory
-The pool item factory interface makes it possible to create new items for the pool and make items ready for use if they are not ready. There's a default pool implementation that uses `IServiceProvider` to construct items, but you can write your own factory implementation.
+## Nuget Package
+### Nuget.org Page
+[https://www.nuget.org/packages/MSL.Pool](https://www.nuget.org/packages/MSL.Pool)
+### Package Install
+```console
+dotnet add package MSL.Pool
+```
 
-## Ready Checker
-The ready checker makes it possible to ensure items are ready for use before they are leased. This is useful for items that may become inactive after a period of time, such as a database connection that has been idle for a while.
+## The Lease / Release Pattern
+Pooled items are placed on a queue.
+
+When a lease is requested, the pool attempts to dequeue an item. 
+If an item is returned from the queue, the item is returned on a task.
+However, if the item queue is empty, the pool will attempt to create a new item to fullfill the lease request.
+If the pool has reached its allocation limit, the pool enqueues the lease request 
+and the lease request's `TaskCompletionSource.Task` is returned to the caller.
+
+The caller will block on await until timing out, or until an item is released back to the pool. 
+First, the release operation attempts to dequeue an active lease request.
+If a lease request is returned, the least request's task is completed with the item being released by the caller.
+But if the lease request queue is empty, the item will be placed back onto item queue.
 
 ## Pool
-The pool uses the item factory and the ready checker to create and manage item readiness. For example, if you pool a database or SMTP connection, the lease operation would include pulling a connection off the queue or constructing it if the queue is empty, then checking that the connection is active, and calling connect if the connection is inactive.
+`IPool<TPoolItem>` is implmented _internally_ by `Pool<TPoolItem>`.
 
+You can access `IPool<TPoolItem>` by registering it with the service collection by calling 
+one of the `IServiceCollection` extensiosns from the `Pool.DependencyInjection` namespace.
+See [Dependency Injection](##dependency-injection) for more information.
+
+`IPool<TPoolItem>` provides three methods with convenient overloads:
+- `LeaseAsync` - returns an item from the pool
+- `ReleaseAsync` - returns an item from the pool
+- `ClearAsync` - clears the pool, disposes the items as required, and reinitializes the pool with min items
+
+The caller is responsible for calling `ReleaseAsync` when it no longer needs the item.
+I recommend using try / finally.
+```csharp
+var item = await pool.LeaseAsync();
+try
+{
+    item.DoStuff();
+}
+finally
+{
+    await pool.ReleaseAsync(item);
+}
+```
+
+`Pool<TPoolItem>` has three dependencies injected into the constructor:
+- `IPoolItemFactory<TPoolItem>`
+- `IReadyCheck<TPoolItem>`
+- `PoolOptions`
+
+See [Dependency Injection](##dependency-injection) for more information.
+
+The pool will use an [item factory](##pool-item-factory) to create new items as required.
+During the lease operation, the pool invokes a [ready checker](##ready-checker) 
+to initialize an item that isn't ready.
+
+## Pool Item Factory
+Implement the `IPoolItemFactory<TPoolItem>` interface to create new items for the pool. 
+There's a default pool implementation that uses `IServiceProvider` to construct items.
+To use the default implementation, call `AddPool<TPoolItem>` or 
+`AddPoolWithDefaultFactory<TPoolItem, TReadyCheckImplementation>` 
+when registering the pool with the service collection.
+See [Dependency Injection](##dependency-injection) for more information.
+
+## Ready Checker
+Implement the `IReadyCheck<TPoolItem>` interface to ensure an item is ready for use when it's leased from the pool.
+
+There's a default `IReadyCheck<TPoolItem>` implementation that always returns 
+`true` from the `IsReadyAsync` method.
+To use the default implementation with a custom item factory, 
+call `AddPool<TPoolItem>` 
+or `AddPoolWithDefaultReadyCheck<TPoolItem, TFactoryImplementation>`
+when registering the pool with the service collection.
+See [Dependency Injection](##dependency-injection) for more information.
+
+Ready check is useful for items that may become inactive after a period of time, 
+such as an SMTP connection that has been idle long enough for the server to terminate
+the connection.
+
+For example, if you're implementing an SMTP connection pool, 
+the lease operation can verify the connection to the STMP server 
+by invoking the SMTP `no-op`. If the ready check fails, 
+you can connect and authenticate to the SMTP server. 
+
+Sample SMTP connection ready check implementation using `MailKit.IMailTransport`:
+```csharp
+public async Task<bool> IsReadyAsync(IMailTransport item, CancellationToken cancellationToken) =>
+    item.IsConnected
+    && item.IsAuthenticated
+    && await NoOpAsync(item, cancellationToken);
+```
+
+Sample SMTP connection make ready implementation using `MailKit.IMailTransport`:
+```csharp
+public async Task MakeReadyAsync(IMailTransport item, CancellationToken cancellationToken)
+{
+    await item.ConnectAsync(hostOptions.Host, hostOptions.Port, hostOptions.UseSsl, cancellationToken);
+    await item.AuthenticateAsync(credentials.UserName, credentials.Password, cancellationToken);
+}
+```
 ## Dependency Injection
 The `ServiceCollectionExtensions` class is in the `Pool.DependencyInjection` namespace.
-- Call `AddPool<TPoolItem, TFactoryImplementation>` to register a singleton pool with your own item factory implementation.
-- Call `AddPoolWithDefaultFactory<TPoolItem>` to register a singleton pool with the default item factory. The default factory uses the service provider to construct pool items.
-- Call `AddReadyCheck<TPoolItem, TReadyCheck>` to register your own `IReadyCheck` implementation. If a ready check is not registered, the pool will not check item readiness before leasing.
+- Call `AddPool<TPoolItem>` to register a singleton pool with the default item factory and ready check implementations.
+- Call `AddPool<TPoolItem, TFactoryImplementation, TReadyCheckImplementation>` to register a singleton pool with your own item factory and ready check implementations.
+- Call `AddPoolWithDefaultFactory<TPoolItem, TReadyCheckImplementation>` to register a singleton pool with the default item factory and a custom ready check implementation. The default factory uses the service provider to construct pool items.
+- Call `AddPoolWithDefaultReadyCheck<TPoolItem, TFactoryImplementation>` to register a singleton pool with the default ready check and a custom item factory implementation.
 
 ## Dev Log
 - 12 FEB 2024 - started SMTP pool at the end of 2023, but got busy with other stuff. Will take it up again soon though because I need it for a work project.
-- 05 MAY 2024 - prepping for publish to Nuget.
+- 05 MAY 2024 - prepping for publish to Nuget by supporting dotnet 6, 7 and 8.
+- 06 MAY 2024 - published to Nuget.
+- 17 MAY 2024 - added tests for out of order dispose scenarios.
+- 17 MA& 2024 - updated readme.md
+- 17 MA& 2024 - Sample/Smtp.Pool is still a work in progress.
