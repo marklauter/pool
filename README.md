@@ -1,6 +1,8 @@
 ## Build Status
 [![.NET Test](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml)
 [![.NET Publish](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml)
+[![Nuget](https://img.shields.io/badge/Nuget-v2.0.0-blue)](https://www.nuget.org/packages/MSL.Pool/)
+
 ##
 
 ![pool logo](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png)
