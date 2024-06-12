@@ -105,6 +105,12 @@ internal sealed class Pool<TPoolItem>
 
     public Pool(
         IPoolItemFactory<TPoolItem> itemFactory,
+        PoolOptions options)
+        : this(itemFactory, null, options)
+    { }
+
+    public Pool(
+        IPoolItemFactory<TPoolItem> itemFactory,
         IPoolItemReadyCheck<TPoolItem>? readyCheck,
         PoolOptions options)
     {
