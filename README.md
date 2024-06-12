@@ -52,7 +52,7 @@ See [Dependency Injection](##dependency-injection) for more information.
 `IPool<TPoolItem>` provides three methods with convenient overloads:
 - `LeaseAsync` - returns an item from the pool and optionally [performs a ready check](##pool-item-ready-checker)
 - `ReleaseAsync` - returns an item to the pool
-- `ClearAsync` - clears the pool, disposes the items as required, and reinitializes the pool with `PoolOptions.MinSize` items
+- `ClearAsync` - clears the pool, disposes of items as required, and reinitializes the pool with `PoolOptions.MinSize` items
 
 The caller is responsible for calling `ReleaseAsync` when it no longer needs the item.
 I recommend using try / finally.
@@ -104,8 +104,7 @@ the connection.
 
 For example, if you're implementing an SMTP connection pool, 
 the lease operation can verify the connection to the STMP server 
-by invoking the SMTP `no-op`. If the ready check fails, 
-you can connect and authenticate to the SMTP server. 
+by invoking the SMTP `no-op`.  If the ready check fails, you can connect and authenticate to the SMTP server. 
 
 Sample SMTP connection ready check implementation using `MailKit.IMailTransport`:
 ```csharp
