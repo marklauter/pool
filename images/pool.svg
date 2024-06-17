@@ -91,7 +91,7 @@
      inkscape:deskcolor="#d1d1d1"
      showgrid="false"
      inkscape:zoom="8"
-     inkscape:cx="0.25"
+     inkscape:cx="3.6875"
      inkscape:cy="70"
      inkscape:window-width="3440"
      inkscape:window-height="1369"
@@ -100,19 +100,20 @@
      inkscape:window-maximized="1"
      inkscape:current-layer="svg8" />
   <g
-     id="g1395">
+     id="g1395"
+     transform="matrix(1.0051538,0,0,1.0051538,-0.3393891,-0.36007097)">
     <path
        id="path349-2-5-6-0-0"
-       style="fill:#038ee7;fill-opacity:1;stroke-width:0.25;stroke-linecap:round;stroke-linejoin:round;paint-order:markers fill stroke;stop-color:#000000;stroke:#0263a0;stroke-opacity:1;stroke-dasharray:none"
+       style="fill:#038ee7;fill-opacity:1;stroke:#0263a0;stroke-width:0.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke;stop-color:#000000"
        d="m 13.322354,29.270789 a 9.5229341,9.5229341 0 0 0 -4.7618601,8.246426 l 8.501e-4,53.034881 a 9.522923,9.522923 0 0 0 1.3980598,4.683809 L 118.18514,32.751754 a 9.522923,9.522923 0 0 0 -3.4828,-3.480186 L 68.773194,2.7534055 a 9.5229341,9.5229341 0 0 0 -9.52254,6.686e-4 z" />
     <path
        id="path349-2-5-6-4"
-       style="fill:#0263a0;fill-opacity:1;stroke-width:0.25;stroke-linecap:round;stroke-linejoin:round;paint-order:markers fill stroke;stop-color:#000000;stroke:#0263a0;stroke-opacity:1;stroke-dasharray:none"
+       style="fill:#0263a0;fill-opacity:1;stroke:#0263a0;stroke-width:0.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke;stop-color:#000000"
        d="m 9.9594079,95.235911 a 9.522923,9.522923 0 0 0 3.3572601,3.55266 L 59.2458,125.30673 a 9.5229341,9.5229341 0 0 0 9.52256,-6.6e-4 l 45.9283,-26.51671 a 9.5229341,9.5229341 0 0 0 4.76184,-8.246434 l -8.2e-4,-53.03488 a 9.522923,9.522923 0 0 0 -1.27254,-4.756285 z" />
   </g>
   <g
      id="g1293"
-     transform="matrix(0.46839898,0,0,0.46767517,17.085511,-4.0930412)">
+     transform="matrix(0.47081305,0,0,0.47008551,16.834173,-2.4639039)">
     <path
        style="fill:#ffffff;fill-opacity:1;stroke-width:0.264583"
        d="m 137.17705,105.93435 c -9.26663,-1.15214 -16.93255,-8.226349 -18.88216,-17.424699 -0.49535,-2.33709 -0.48044,-6.458462 0.0325,-8.980936 1.12659,-5.540248 4.73361,-10.79019 9.55754,-13.910771 13.29024,-8.597414 30.98239,-0.84351 33.70141,14.770251 0.45609,2.619032 0.18512,7.476266 -0.54676,9.801156 -2.11554,6.72017 -6.93019,11.976319 -13.17379,14.381819 -3.25756,1.25505 -7.35521,1.77764 -10.68874,1.36318 z"
