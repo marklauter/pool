@@ -207,8 +207,10 @@ internal sealed class Pool<TPoolItem>
     {
         if (!isPoolItemDisposable)
         {
+            items.Clear();
             return;
         }
+
 
         while (items.TryDequeue(out var item))
         {
