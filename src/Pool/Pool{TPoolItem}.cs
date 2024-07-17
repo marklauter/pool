@@ -4,7 +4,8 @@ using System.Runtime.CompilerServices;
 
 namespace Pool;
 
-internal sealed class Pool<TPoolItem>
+/// <inheritdoc/>>
+public sealed class Pool<TPoolItem>
     : IPool<TPoolItem>
     , IDisposable
     where TPoolItem : class
@@ -94,7 +95,7 @@ internal sealed class Pool<TPoolItem>
     private static readonly bool IsPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
     private readonly int maxSize;
     private readonly int initialSize;
-    private readonly bool needsReadyCheck;
+    private readonly bool preparationRequired;
     private readonly ConcurrentQueue<TPoolItem> items;
     private readonly ConcurrentQueue<LeaseRequest> requests = new();
     private readonly IItemFactory<TPoolItem> itemFactory;
@@ -103,39 +104,60 @@ internal sealed class Pool<TPoolItem>
     private readonly TimeSpan preparationTimeout;
     private bool disposed;
 
+    /// <summary>
+    /// ctor
+    /// </summary>
+    /// <param name="itemFactory"></param>
+    /// <param name="options"></param>
     public Pool(
         IItemFactory<TPoolItem> itemFactory,
         PoolOptions options)
         : this(itemFactory, null, options)
     { }
 
+    /// <summary>
+    /// ctor
+    /// </summary>
+    /// <param name="itemFactory"><see cref="IItemFactory{TPoolItem}"/></param>
+    /// <param name="preparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></param>
+    /// <param name="options"><see cref="PoolOptions"/></param>
+    /// <exception cref="ArgumentNullException"></exception>
     public Pool(
         IItemFactory<TPoolItem> itemFactory,
         IPreparationStrategy<TPoolItem>? preparationStrategy,
         PoolOptions options)
     {
-        needsReadyCheck = options?.PreparationRequired ?? preparationStrategy is not null;
+        preparationRequired = options?.PreparationRequired ?? preparationStrategy is not null;
         maxSize = options?.MaxSize ?? Int32.MaxValue;
         initialSize = Math.Min(options?.MinSize ?? 0, maxSize);
         leaseTimeout = options?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
         preparationTimeout = options?.PreparationTimeout ?? Timeout.InfiniteTimeSpan;
 
         this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
-        this.preparationStrategy = needsReadyCheck && preparationStrategy is null
+        this.preparationStrategy = preparationRequired && preparationStrategy is null
             ? throw new ArgumentNullException(nameof(preparationStrategy))
             : preparationStrategy;
 
         items = new(CreateItems(initialSize));
     }
 
+    /// <inheritdoc/>>
     public int ItemsAllocated { get; private set; }
+
+    /// <inheritdoc/>>
     public int ItemsAvailable => items.Count;
+
+    /// <inheritdoc/>>
     public int ActiveLeases => ItemsAllocated - ItemsAvailable;
+
+    /// <inheritdoc/>>
     public int QueuedLeases => requests.Count;
 
+    /// <inheritdoc/>>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ValueTask<TPoolItem> LeaseAsync() => LeaseAsync(CancellationToken.None);
 
+    /// <inheritdoc/>>
     public async ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
         if (ThrowIfDisposed().TryAcquireItem(out var item))
@@ -149,9 +171,11 @@ internal sealed class Pool<TPoolItem>
         return await leaseRequest.Task;
     }
 
+    /// <inheritdoc/>>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Task ReleaseAsync(TPoolItem item) => ReleaseAsync(item, CancellationToken.None);
 
+    /// <inheritdoc/>>
     public async Task ReleaseAsync(
         TPoolItem item,
         CancellationToken cancellationToken)
@@ -165,9 +189,11 @@ internal sealed class Pool<TPoolItem>
         items.Enqueue(item);
     }
 
+    /// <inheritdoc/>>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Task ClearAsync() => ClearAsync(CancellationToken.None);
 
+    /// <inheritdoc/>>
     public async Task ClearAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed().EnsureItemsDisposed();
@@ -227,7 +253,7 @@ internal sealed class Pool<TPoolItem>
         TPoolItem item,
         CancellationToken cancellationToken)
     {
-        if (!needsReadyCheck)
+        if (!preparationRequired)
         {
             return item;
         }
@@ -253,25 +279,21 @@ internal sealed class Pool<TPoolItem>
         ? throw new ObjectDisposedException(nameof(Pool<TPoolItem>))
         : this;
 
-    private void Dispose(bool disposing)
+    /// <inheritdoc/>
+    public void Dispose()
     {
         if (disposed)
         {
             return;
         }
 
-        disposed = true;
-
-        if (disposing)
+        while (requests.TryDequeue(out var leaseRequest))
         {
-            while (requests.TryDequeue(out var leaseRequest))
-            {
-                leaseRequest.Dispose();
-            }
-
-            EnsureItemsDisposed();
+            leaseRequest.Dispose();
         }
-    }
 
-    public void Dispose() => Dispose(disposing: true);
+        EnsureItemsDisposed();
+
+        disposed = true;
+    }
 }
