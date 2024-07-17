@@ -7,7 +7,7 @@
 [![Nuget](https://img.shields.io/badge/.NET-8.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0/)
 
 ## 
-![Pool Logo](https://github.com/marklauter/pool/blob/main/images/plumber.png "Pool Logo")
+![Pool Logo](https://github.com/marklauter/pool/blob/main/images/pool.png "Pool Logo")
 
 # Pool
 `IPool<TPoolItem>` is an object pool that uses the lease/release pattern.
