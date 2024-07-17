@@ -1,7 +1,7 @@
 ## Build Status
 [![.NET Test](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml)
 [![.NET Publish](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml)
-[![Nuget](https://img.shields.io/badge/Nuget-v2.0.0-blue)](https://www.nuget.org/packages/MSL.Pool/)
+[![Nuget](https://img.shields.io/badge/Nuget-v3.0.0-blue)](https://www.nuget.org/packages/MSL.Pool/)
 [![Nuget](https://img.shields.io/badge/.NET-6.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/6.0)
 [![Nuget](https://img.shields.io/badge/.NET-7.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/7.0)
 [![Nuget](https://img.shields.io/badge/.NET-8.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0/)
@@ -11,9 +11,9 @@
 
 # Pool
 `IPool<TPoolItem>` is an object pool that uses the lease/release pattern.
-It allows for but does not require, [ready checks](##pool-item-ready-checker) 
-with initialization on ready check failure. 
-Common use cases for [ready checks](##pool-item-ready-checker) 
+It allows for but does not require, [preparation strategies](##pool-item-preparation-strategy) 
+with preparation performed on ready check failure.
+Common use cases for [preparation strategies](##pool-item-preparation-strategy) 
 include objects that benefit from long-lived connections, 
 like SMTP or database connections.
 
@@ -50,7 +50,7 @@ one of the `IServiceCollection` extensions from the `Pool.DependencyInjection` n
 See [Dependency Injection](##dependency-injection) for more information.
 
 `IPool<TPoolItem>` provides three methods with convenient overloads:
-- `LeaseAsync` - returns an item from the pool and optionally [performs a ready check](##pool-item-ready-checker)
+- `LeaseAsync` - returns an item from the pool and optionally [performs a ready check](##pool-item-preparation-strategy)
 - `ReleaseAsync` - returns an item to the pool
 - `ClearAsync` - clears the pool, disposes of items as required, and reinitializes the pool with `PoolOptions.MinSize` items
 
@@ -69,32 +69,31 @@ finally
 ```
 
 `Pool<TPoolItem>` has three dependencies injected into the constructor:
-- `IPoolItemFactory<TPoolItem>`
-- `IPoolItemReadyCheck<TPoolItem>`
+- `IIitemFactory<TPoolItem>`
+- `IPreparationStrategy<TPoolItem>`
 - `PoolOptions`
 
 See [Dependency Injection](##dependency-injection) for more information.
 
 The pool will use an [item factory](##pool-item-factory) to create new items as required.
-During the lease operation, the pool invokes a [ready checker](##pool-item-ready-checker) 
+During the lease operation, the pool invokes a [ready checker](##pool-item-preparation-strategy) 
 to initialize an item that isn't ready.
 
 ## Pool Item Factory
-Implement the `IPoolItemFactory<TPoolItem>` interface to create new items for the pool. 
+Implement the `IIitemFactory<TPoolItem>` interface to create new items for the pool. 
 The library provides a default pool implementation that uses `IServiceProvider` to construct items.
 To use the default implementation, call `AddPool<TPoolItem>` or 
-`AddPoolWithDefaultFactory<TPoolItem, TReadyCheckImplementation>` 
+`AddPoolWithDefaultFactory<TPoolItem, TPreparationStrategy>` 
 when registering the pool with the service collection.
 See [Dependency Injection](##dependency-injection) for more information.
 
-## Pool Item Ready Checker
-Implement the `IPoolItemReadyCheck<TPoolItem>` interface to ensure an item is ready for use when leased from the pool.
+## Pool Item Preparation Strateg
+Implement the `IPreparationStrategy<TPoolItem>` interface to ensure an item is ready for use when leased from the pool.
 
-There's a default `IPoolItemReadyCheck<TPoolItem>` implementation that always returns 
+There's a default `IPreparationStrategy<TPoolItem>` implementation that always returns 
 `true` from the `IsReadyAsync` method.
 To use the default implementation with a custom item factory, 
 call `AddPool<TPoolItem>` 
-or `AddPoolWithDefaultReadyCheck<TPoolItem, TFactoryImplementation>`
 when registering the pool with the service collection.
 See [Dependency Injection](##dependency-injection) for more information.
 
@@ -114,9 +113,9 @@ public async ValueTask<bool> IsReadyAsync(IMailTransport item, CancellationToken
     && await NoOpAsync(item, cancellationToken);
 ```
 
-Sample SMTP connection `MakeReadyAsync` implementation using `MailKit.IMailTransport`:
+Sample SMTP connection `PrepareAsync` implementation using `MailKit.IMailTransport`:
 ```csharp
-public async Task MakeReadyAsync(IMailTransport item, CancellationToken cancellationToken)
+public async Task PrepareAsync(IMailTransport item, CancellationToken cancellationToken)
 {
     await item.ConnectAsync(hostOptions.Host, hostOptions.Port, hostOptions.UseSsl, cancellationToken);
     await item.AuthenticateAsync(credentials.UserName, credentials.Password, cancellationToken);
@@ -125,7 +124,7 @@ public async Task MakeReadyAsync(IMailTransport item, CancellationToken cancella
 ## Dependency Injection
 The `ServiceCollectionExtensions` class is in the `Pool.DependencyInjection` namespace.
 - Call `AddPool<TPoolItem>` to register a singleton pool. Pass `Action<PoolRegistrationOptions>` to specify whether or not to register the default item factory and ready check implementations.
-- Call `AddPoolItemReadyCheck<TPoolItem, TReadyCheckImplementation>` to register a singleton-ready check implementation.
+- Call `AddPreparationStrategy<TPoolItem, TPreparationStrategy>` to register a singleton preparation strategy.
 - Call `AddPoolItemFactory<TPoolItem, TFactoryImplementation>` to register a singleton item factory implementation.
 
 ### Sample `AddPool<TPoolItem>` Registration
@@ -147,4 +146,5 @@ services.AddPool<IMailTransport>(configuration, options =>
 - 18 MAY 2024 :ALERT: breaking changes.
 - 18 MAY 2024 - refactored dependency injection extensions. 
 - 18 MAY 2024 - refactored to use ValueTask on LeaseAsync method. 
+- 16 JUL 2024 - better naming and cleaned up smtp sample project.
 </div>
