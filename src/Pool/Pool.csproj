@@ -56,7 +56,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<None Include="..\..\images\pool.svg">
+		<None Include="..\..\images\pool.png">
 			<Pack>True</Pack>
 			<PackagePath>\</PackagePath>
 		</None>

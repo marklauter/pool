@@ -13,8 +13,8 @@ public sealed class PoolItemFactoryTests
             .AddScoped<IEcho, Echo>()
             .BuildServiceProvider();
 
-        var factory = new DefaultPoolItemFactory<IEcho>(services);
-        var pool = new Pool<IEcho>(factory, new DefaultReadyCheck<IEcho>(), new PoolOptions { MinSize = 5 });
+        var factory = new DefaultItemFactory<IEcho>(services);
+        var pool = new Pool<IEcho>(factory, new DefaultPreparationStrategy<IEcho>(), new PoolOptions { MinSize = 5 });
         var item = await pool.LeaseAsync(CancellationToken.None);
         Assert.NotNull(item);
 

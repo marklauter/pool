@@ -6,11 +6,11 @@
 public sealed class PoolOptions
 {
     /// <summary>
-    /// NeedsReadyCheck gets or sets a value indicating whether to perform a ready check before leasing an item from the pool.
-    /// If true, an <see cref="IPoolItemReadyCheck{TPoolItem}"/> implementation has to be registered with the service provider.
+    /// PreparationRequired gets or sets a value indicating whether to perform a prepare an item before leasing it from the pool.
+    /// If true, an <see cref="IPreparationStrategy{TPoolItem}"/> implementation has to be registered with the service provider.
     /// </summary>
     /// <remarks>Defaults to false.</remarks>
-    public bool NeedsReadyCheck { get; init; }
+    public bool PreparationRequired { get; init; }
 
     /// <summary>
     /// MinSize gets or sets the minimum number of items in the pool.
@@ -34,5 +34,5 @@ public sealed class PoolOptions
     /// ReadyTimeout gets or sets the timeout to wait for the ready check and attempt to make ready a pool item before completing the lease request.
     /// </summary>
     /// <remarks>Defaults to Timeout.InfiniteTimeSpan</remarks>
-    public TimeSpan ReadyTimeout { get; init; } = Timeout.InfiniteTimeSpan;
+    public TimeSpan PreparationTimeout { get; init; } = Timeout.InfiniteTimeSpan;
 }

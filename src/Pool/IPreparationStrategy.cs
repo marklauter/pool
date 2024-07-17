@@ -1,11 +1,11 @@
 ﻿namespace Pool;
 
 /// <summary>
-/// IPoolItemReadyCheck for checking if a pool item is ready, and making it ready if it is not.
+/// IPreparationStrategy is an interface for preparing pool items before the pool leases them to the caller.
 /// </summary>
 /// <typeparam name="TPoolItem"></typeparam>
-public interface IPoolItemReadyCheck<TPoolItem>
-    where TPoolItem : notnull
+public interface IPreparationStrategy<TPoolItem>
+    where TPoolItem : class
 {
     /// <summary>
     /// IsReadyAsync checks if the pool item is ready before the pool leases it to the caller.
@@ -22,5 +22,5 @@ public interface IPoolItemReadyCheck<TPoolItem>
     /// <param name="cancellationToken"></param>
     /// <returns><see cref="Task"/></returns>
     /// <remarks>The pool will call MakeReadyAsync when IsReadyAsync returns false. Implement MakeReadyAsync to initialize an object, or establish a connection, like connecting to a database or smtp server.</remarks>
-    Task MakeReadyAsync(TPoolItem item, CancellationToken cancellationToken);
+    Task PrepareAsync(TPoolItem item, CancellationToken cancellationToken);
 }

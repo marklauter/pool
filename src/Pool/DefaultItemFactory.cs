@@ -2,10 +2,10 @@
 
 namespace Pool;
 
-internal sealed class DefaultPoolItemFactory<TPoolItem>(IServiceProvider serviceProvider)
-    : IPoolItemFactory<TPoolItem>
+internal sealed class DefaultItemFactory<TPoolItem>(IServiceProvider serviceProvider)
+    : IItemFactory<TPoolItem>
     , IDisposable
-    where TPoolItem : notnull
+    where TPoolItem : class
 {
     // create a service scope so the factory can create scoped services
     private readonly IServiceScope serviceScope = serviceProvider?.CreateScope()

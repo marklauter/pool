@@ -5,7 +5,7 @@
 /// </summary>
 /// <typeparam name="TPoolItem"></typeparam>
 public interface IPool<TPoolItem>
-    where TPoolItem : notnull
+    where TPoolItem : class
 {
     /// <summary>
     /// clears the pool and sets allocated to zero

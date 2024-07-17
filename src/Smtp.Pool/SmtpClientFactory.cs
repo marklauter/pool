@@ -6,7 +6,8 @@ using Pool;
 namespace Smtp.Pool;
 
 internal sealed class SmtpClientFactory
-    : IPoolItemFactory<IMailTransport>
+    : IItemFactory<IMailTransport>
+    , IPreparationStrategy<IMailTransport>
 {
     private readonly SmtpHostOptions hostOptions;
     private readonly SmtpClientOptions clientOptions;
@@ -50,7 +51,7 @@ internal sealed class SmtpClientFactory
         }
     }
 
-    public async Task MakeReadyAsync(IMailTransport item, CancellationToken cancellationToken)
+    public async Task PrepareAsync(IMailTransport item, CancellationToken cancellationToken)
     {
         await item.ConnectAsync(hostOptions.Host, hostOptions.Port, hostOptions.UseSsl, cancellationToken);
         await item.AuthenticateAsync(credentials.UserName, credentials.Password, cancellationToken);
