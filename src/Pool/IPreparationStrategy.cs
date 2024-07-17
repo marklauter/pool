@@ -16,11 +16,11 @@ public interface IPreparationStrategy<TPoolItem>
     ValueTask<bool> IsReadyAsync(TPoolItem item, CancellationToken cancellationToken);
 
     /// <summary>
-    /// MakeReadyAsync makes the pool item ready before the pool leases it to the caller.
+    /// PrepareAsync makes the pool item ready before the pool leases it to the caller.
     /// </summary>
     /// <param name="item"></param>
     /// <param name="cancellationToken"></param>
     /// <returns><see cref="Task"/></returns>
-    /// <remarks>The pool will call MakeReadyAsync when IsReadyAsync returns false. Implement MakeReadyAsync to initialize an object, or establish a connection, like connecting to a database or smtp server.</remarks>
+    /// <remarks>The pool will call PrepareAsync when IsReadyAsync returns false. Implement PrepareAsync to initialize an object, or establish a connection, like connecting to a database or smtp server.</remarks>
     Task PrepareAsync(TPoolItem item, CancellationToken cancellationToken);
 }

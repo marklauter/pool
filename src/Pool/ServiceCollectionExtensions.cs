@@ -53,24 +53,24 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// AddPoolItemReadyCheck registers a custom <see cref="IPreparationStrategy{TPoolItem}"/> implementation.
+    /// AddPreparationStrategy registers a custom <see cref="IPreparationStrategy{TPoolItem}"/> implementation.
     /// </summary>
     /// <typeparam name="TPoolItem"></typeparam>
-    /// <typeparam name="TReadyCheckImplementation"><see cref="IPreparationStrategy{TPoolItem}"/></typeparam>
+    /// <typeparam name="TPreparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></typeparam>
     /// <param name="services"><see cref="IServiceCollection"/></param>
     /// <returns><see cref="IServiceCollection"/></returns>
 #if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
 #endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddPoolItemReadyCheck<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TReadyCheckImplementation>(
+    public static IServiceCollection AddPreparationStrategy<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPreparationStrategy>(
         this IServiceCollection services)
         where TPoolItem : class
-        where TReadyCheckImplementation : class, IPreparationStrategy<TPoolItem>
+        where TPreparationStrategy : class, IPreparationStrategy<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IPreparationStrategy<TPoolItem>, TReadyCheckImplementation>();
+        services.TryAddSingleton<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
         return services;
     }
 
@@ -107,19 +107,19 @@ public static class ServiceCollectionExtensions
     internal static IServiceCollection AddTestPool<
         TPoolItem,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation,
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TReadyCheckImplementation>(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPreparationStrategy>(
         this IServiceCollection services,
         IConfiguration configuration)
         where TPoolItem : class
         where TFactoryImplementation : class, IItemFactory<TPoolItem>
-        where TReadyCheckImplementation : class, IPreparationStrategy<TPoolItem>
+        where TPreparationStrategy : class, IPreparationStrategy<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.TryAddSingleton(configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>() ?? new PoolOptions());
         services.TryAddTransient<IItemFactory<TPoolItem>, TFactoryImplementation>();
-        services.TryAddTransient<IPreparationStrategy<TPoolItem>, TReadyCheckImplementation>();
+        services.TryAddTransient<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
         services.TryAddTransient<IPool<TPoolItem>, Pool<TPoolItem>>();
 
         return services;
