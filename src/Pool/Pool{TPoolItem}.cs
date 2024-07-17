@@ -91,7 +91,7 @@ internal sealed class Pool<TPoolItem>
         public void Dispose() => Dispose(disposing: true);
     }
 
-    private readonly bool isPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
+    private static readonly bool IsPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
     private readonly int maxSize;
     private readonly int initialSize;
     private readonly bool needsReadyCheck;
@@ -180,7 +180,7 @@ internal sealed class Pool<TPoolItem>
 
     private void EnsureItemsDisposed()
     {
-        if (!isPoolItemDisposable)
+        if (!IsPoolItemDisposable)
         {
             return;
         }
