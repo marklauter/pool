@@ -92,15 +92,22 @@ public sealed class Pool<TPoolItem>
         public void Dispose() => Dispose(disposing: true);
     }
 
+    private record struct PoolItem(DateTime IdleSince, TPoolItem? Item)
+    {
+        public static PoolItem Create(TPoolItem item) => new(DateTime.UtcNow, item);
+    }
+
     private static readonly bool IsPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
+
+    private readonly ConcurrentQueue<PoolItem> items;
+    private readonly ConcurrentQueue<LeaseRequest> requests = new();
     private readonly int maxSize;
     private readonly int initialSize;
     private readonly bool preparationRequired;
-    private readonly ConcurrentQueue<TPoolItem> items;
-    private readonly ConcurrentQueue<LeaseRequest> requests = new();
     private readonly IItemFactory<TPoolItem> itemFactory;
     private readonly IPreparationStrategy<TPoolItem>? preparationStrategy;
     private readonly TimeSpan leaseTimeout;
+    private readonly TimeSpan idleTimeout;
     private readonly TimeSpan preparationTimeout;
     private bool disposed;
 
@@ -127,18 +134,19 @@ public sealed class Pool<TPoolItem>
         IPreparationStrategy<TPoolItem>? preparationStrategy,
         PoolOptions options)
     {
-        preparationRequired = options?.PreparationRequired ?? preparationStrategy is not null;
+        this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
+
+        preparationRequired = preparationStrategy is not null;
+        this.preparationStrategy = preparationStrategy;
+
         maxSize = options?.MaxSize ?? Int32.MaxValue;
         initialSize = Math.Min(options?.MinSize ?? 0, maxSize);
+
         leaseTimeout = options?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
+        idleTimeout = options?.IdleTimeout ?? Timeout.InfiniteTimeSpan;
         preparationTimeout = options?.PreparationTimeout ?? Timeout.InfiniteTimeSpan;
 
-        this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
-        this.preparationStrategy = preparationRequired && preparationStrategy is null
-            ? throw new ArgumentNullException(nameof(preparationStrategy))
-            : preparationStrategy;
-
-        items = new(CreateItems(initialSize));
+        items = new(CreateItems(initialSize).Select(PoolItem.Create));
     }
 
     /// <inheritdoc/>>
@@ -162,7 +170,7 @@ public sealed class Pool<TPoolItem>
     {
         if (ThrowIfDisposed().TryAcquireItem(out var item))
         {
-            return await EnsurePreparedAsync(item, cancellationToken);
+            return await EnsurePreparedAsync(item.Item!, cancellationToken);
         }
 
         var leaseRequest = new LeaseRequest(leaseTimeout, cancellationToken);
@@ -186,7 +194,7 @@ public sealed class Pool<TPoolItem>
             return;
         }
 
-        items.Enqueue(item);
+        items.Enqueue(PoolItem.Create(item));
     }
 
     /// <inheritdoc/>>
@@ -204,19 +212,6 @@ public sealed class Pool<TPoolItem>
         await Task.WhenAll(tasks);
     }
 
-    private void EnsureItemsDisposed()
-    {
-        if (!IsPoolItemDisposable)
-        {
-            return;
-        }
-
-        while (items.TryDequeue(out var item))
-        {
-            (item as IDisposable)?.Dispose();
-        }
-    }
-
     private IEnumerable<TPoolItem> CreateItems(int count)
     {
         lock (this)
@@ -230,12 +225,12 @@ public sealed class Pool<TPoolItem>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool TryAcquireItem([NotNullWhen(true)] out TPoolItem? item) =>
-        items.TryDequeue(out item) || TryCreateItem(out item);
+    private bool TryAcquireItem(out PoolItem item) =>
+        TryDequeue(out item) || TryCreateItem(out item);
 
-    private bool TryCreateItem([NotNullWhen(true)] out TPoolItem? item)
+    private bool TryCreateItem(out PoolItem item)
     {
-        item = null;
+        item = default;
         lock (this)
         {
             if (ItemsAllocated >= maxSize)
@@ -244,9 +239,28 @@ public sealed class Pool<TPoolItem>
             }
 
             ++ItemsAllocated;
-            item = itemFactory.CreateItem();
+            item = PoolItem.Create(itemFactory.CreateItem());
             return true;
         }
+    }
+
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
+    private bool TryDequeue(out PoolItem item)
+    {
+        while (items.TryDequeue(out item))
+        {
+            if (idleTimeout == Timeout.InfiniteTimeSpan || DateTime.UtcNow - item.IdleSince < idleTimeout)
+            {
+                return true;
+            }
+
+            if (!IsPoolItemDisposable)
+            {
+                (item.Item as IDisposable)?.Dispose();
+            }
+        }
+
+        return false;
     }
 
     private async ValueTask<TPoolItem> EnsurePreparedAsync(
@@ -272,6 +286,20 @@ public sealed class Pool<TPoolItem>
         await preparationStrategy.PrepareAsync(item, cancellationToken);
 
         return item;
+    }
+
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
+    private void EnsureItemsDisposed()
+    {
+        if (!IsPoolItemDisposable)
+        {
+            return;
+        }
+
+        while (items.TryDequeue(out var item))
+        {
+            (item.Item as IDisposable)?.Dispose();
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

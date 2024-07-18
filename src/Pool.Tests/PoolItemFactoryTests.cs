@@ -15,7 +15,10 @@ public sealed class PoolItemFactoryTests
             .BuildServiceProvider();
 
         var factory = new DefaultItemFactory<IEcho>(services);
-        var pool = new Pool<IEcho>(factory, new DefaultPreparationStrategy<IEcho>(), new PoolOptions { MinSize = 5 });
+        var pool = new Pool<IEcho>(
+            factory,
+            new DefaultPreparationStrategy<IEcho>(),
+            new PoolOptions { MinSize = 5 });
         var item = await pool.LeaseAsync(CancellationToken.None);
         Assert.NotNull(item);
 

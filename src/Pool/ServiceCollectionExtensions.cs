@@ -44,7 +44,6 @@ public static class ServiceCollectionExtensions
         services
             .AddDefaultPreparationStrategy<TPoolItem>(options)
             .AddDefaultFactory<TPoolItem>(options)
-            .AddDefaultKeepAliveStrategy<TPoolItem>(options)
             .TryAddSingleton(options);
         services.TryAddSingleton<IPool<TPoolItem>, Pool<TPoolItem>>();
 
@@ -70,28 +69,6 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<IPreparationStrategy<TPoolItem>, TStrategy>();
-        return services;
-    }
-
-    /// <summary>
-    /// AddKeepAliveStrategy registers a custom <see cref="IKeepAliveStrategy{TPoolItem}"/> implementation.
-    /// </summary>
-    /// <typeparam name="TPoolItem"></typeparam>
-    /// <typeparam name="TStrategy"><see cref="IKeepAliveStrategy{TPoolItem}"/></typeparam>
-    /// <param name="services"><see cref="IServiceCollection"/></param>
-    /// <returns><see cref="IServiceCollection"/></returns>
-#if NET7_0_OR_GREATER
-    [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
-#endif
-    [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddKeepAliveStrategy<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStrategy>(
-        this IServiceCollection services)
-        where TPoolItem : class
-        where TStrategy : class, IKeepAliveStrategy<TPoolItem>
-    {
-        ArgumentNullException.ThrowIfNull(services);
-
-        services.TryAddSingleton<IKeepAliveStrategy<TPoolItem>, TStrategy>();
         return services;
     }
 
@@ -163,17 +140,6 @@ public static class ServiceCollectionExtensions
         if (options.UseDefaultFactory)
         {
             services.TryAddSingleton<IItemFactory<TPoolItem>, DefaultItemFactory<TPoolItem>>();
-        }
-
-        return services;
-    }
-
-    private static IServiceCollection AddDefaultKeepAliveStrategy<TPoolItem>(this IServiceCollection services, PoolOptions options)
-        where TPoolItem : class
-    {
-        if (options.UseDefaultKeepAliveStrategy)
-        {
-            services.TryAddSingleton<IKeepAliveStrategy<TPoolItem>, DefaultKeepAliveStrategy<TPoolItem>>();
         }
 
         return services;

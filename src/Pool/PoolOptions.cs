@@ -6,35 +6,34 @@
 public sealed class PoolOptions
 {
     /// <summary>
-    /// PreparationRequired gets or sets a value indicating whether to perform a prepare an item before leasing it from the pool.
-    /// If true, an <see cref="IPreparationStrategy{TPoolItem}"/> implementation has to be registered with the service provider.
-    /// </summary>
-    /// <remarks>Defaults to false.</remarks>
-    public bool PreparationRequired { get; init; }
-
-    /// <summary>
     /// MinSize gets or sets the minimum number of items in the pool.
     /// </summary>
     /// <remarks>Defaults to zero.</remarks>
-    public int MinSize { get; init; }
+    public int MinSize { get; set; }
 
     /// <summary>
     /// MaxSize gets or sets the maximum number of items in the pool.
     /// </summary>
     /// <remarks>Defaults to Int32.MaxValue</remarks>
-    public int MaxSize { get; init; } = Int32.MaxValue;
+    public int MaxSize { get; set; } = Int32.MaxValue;
 
     /// <summary>
     /// LeaseTimeout gets or sets the timeout for leasing an item from the pool.
     /// </summary>
     /// <remarks>Defaults to Timeout.InfiniteTimeSpan</remarks>
-    public TimeSpan LeaseTimeout { get; init; } = Timeout.InfiniteTimeSpan;
+    public TimeSpan LeaseTimeout { get; set; } = Timeout.InfiniteTimeSpan;
 
     /// <summary>
     /// ReadyTimeout gets or sets the timeout to wait for the ready check and attempt to make ready a pool item before completing the lease request.
     /// </summary>
     /// <remarks>Defaults to Timeout.InfiniteTimeSpan</remarks>
-    public TimeSpan PreparationTimeout { get; init; } = Timeout.InfiniteTimeSpan;
+    public TimeSpan PreparationTimeout { get; set; } = Timeout.InfiniteTimeSpan;
+
+    /// <summary>
+    /// IdleTimeout gets or sets the timeout for an item to be idle before it is removed from the pool.
+    /// </summary>
+    /// <remarks>Defaults to Timeout.InfiniteTimeSpan</remarks>
+    public TimeSpan IdleTimeout { get; set; } = Timeout.InfiniteTimeSpan;
 
     /// <summary>
     /// Set to true to register the default <see cref="IPreparationStrategy{TPoolItem}"/> implementation.
@@ -47,10 +46,4 @@ public sealed class PoolOptions
     /// </summary>
     /// <remarks>Defaults to false.</remarks>
     public bool UseDefaultFactory { get; set; }
-
-    /// <summary>
-    /// Set to true to register the default <see cref="IKeepAliveStrategy{TPoolItem}"/> implementation.
-    /// </summary>
-    /// <remarks>Defaults to false.</remarks>
-    public bool UseDefaultKeepAliveStrategy { get; set; }
 }
