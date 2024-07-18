@@ -262,7 +262,7 @@ public sealed class Pool<TPoolItem>
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
     private void RemoveItem(TPoolItem item)
     {
-        lock(this)
+        lock (this)
         {
             --ItemsAllocated;
         }
