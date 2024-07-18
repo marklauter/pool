@@ -1,7 +1,7 @@
 ## Build Status
 [![.NET Test](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml)
 [![.NET Publish](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml)
-[![Nuget](https://img.shields.io/badge/Nuget-v3.0.0-blue)](https://www.nuget.org/packages/MSL.Pool/)
+[![Nuget](https://img.shields.io/badge/Nuget-v4.0.0-blue)](https://www.nuget.org/packages/MSL.Pool/)
 [![Nuget](https://img.shields.io/badge/.NET-6.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/6.0)
 [![Nuget](https://img.shields.io/badge/.NET-7.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/7.0)
 [![Nuget](https://img.shields.io/badge/.NET-8.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0/)
@@ -11,8 +11,7 @@
 
 # Pool
 `IPool<TPoolItem>` is an object pool that uses the lease/release pattern.
-It allows for but does not require, [preparation strategies](##pool-item-preparation-strategy) 
-with preparation performed on ready check failure.
+It allows for but does not require, [preparation strategies](##pool-item-preparation-strategy).
 Common use cases for [preparation strategies](##pool-item-preparation-strategy) 
 include objects that benefit from long-lived connections, 
 like SMTP or database connections.
