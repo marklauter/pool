@@ -244,7 +244,6 @@ public sealed class Pool<TPoolItem>
         }
     }
 
-    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
     private bool TryDequeue(out PoolItem item)
     {
         while (items.TryDequeue(out item))
@@ -254,13 +253,24 @@ public sealed class Pool<TPoolItem>
                 return true;
             }
 
-            if (!IsPoolItemDisposable)
-            {
-                (item.Item as IDisposable)?.Dispose();
-            }
+            RemoveItem(item.Item!);
         }
 
         return false;
+    }
+
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
+    private void RemoveItem(TPoolItem item)
+    {
+        lock(this)
+        {
+            --ItemsAllocated;
+        }
+
+        if (!IsPoolItemDisposable)
+        {
+            (item as IDisposable)?.Dispose();
+        }
     }
 
     private async ValueTask<TPoolItem> EnsurePreparedAsync(
