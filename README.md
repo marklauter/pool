@@ -6,8 +6,8 @@
 [![Nuget](https://img.shields.io/badge/.NET-7.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/7.0)
 [![Nuget](https://img.shields.io/badge/.NET-8.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0/)
 
-<div>
-<img src="https://github.com/marklauter/pool/blob/main/images/pool.svg" title="pool-logo" alt="pool-logo" height="128" />
+## 
+![Pool Logo](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png "Pool Logo")
 
 # Pool
 `IPool<TPoolItem>` is an object pool that uses the lease/release pattern.
@@ -147,4 +147,3 @@ services.AddPool<IMailTransport>(configuration, options =>
 - 18 MAY 2024 - refactored dependency injection extensions. 
 - 18 MAY 2024 - refactored to use ValueTask on LeaseAsync method. 
 - 16 JUL 2024 - better naming and cleaned up smtp sample project.
-</div>
