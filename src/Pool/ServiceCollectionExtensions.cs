@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Pool.DefaultStrategies;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Pool;
@@ -17,7 +18,7 @@ public static class ServiceCollectionExtensions
     /// <typeparam name="TPoolItem">The type of item contained by the pool.</typeparam>
     /// <param name="services"><see cref="IServiceCollection"/></param>
     /// <param name="configuration"><see cref="IConfiguration"/></param>
-    /// <param name="configure"><see cref="Action{T}"/> and <see cref="ItemLeaseOptions"/></param>
+    /// <param name="configure"><see cref="Action{T}"/> and <see cref="PoolOptions"/></param>
     /// <returns><see cref="IServiceCollection"/></returns>
 #if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
@@ -27,26 +28,24 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddPool<TPoolItem>(
         this IServiceCollection services,
         IConfiguration configuration,
-        Action<ItemLeaseOptions>? configure = null)
+        Action<PoolOptions>? configure = null)
         where TPoolItem : class
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var options = new ItemLeaseOptions();
+        var options = configuration
+            .GetSection(nameof(PoolOptions))
+            .Get<PoolOptions>()
+            ?? new PoolOptions();
+
         configure?.Invoke(options);
 
-        if (options.UseDefaultPreparationStrategy)
-        {
-            services.TryAddSingleton<IPreparationStrategy<TPoolItem>, DefaultPreparationStrategy<TPoolItem>>();
-        }
-
-        if (options.UseDefaultFactory)
-        {
-            services.TryAddSingleton<IItemFactory<TPoolItem>, DefaultItemFactory<TPoolItem>>();
-        }
-
-        services.TryAddSingleton(configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>() ?? new PoolOptions());
+        services
+            .AddDefaultPreparationStrategy<TPoolItem>(options)
+            .AddDefaultFactory<TPoolItem>(options)
+            .AddDefaultKeepAliveStrategy<TPoolItem>(options)
+            .TryAddSingleton(options);
         services.TryAddSingleton<IPool<TPoolItem>, Pool<TPoolItem>>();
 
         return services;
@@ -56,21 +55,43 @@ public static class ServiceCollectionExtensions
     /// AddPreparationStrategy registers a custom <see cref="IPreparationStrategy{TPoolItem}"/> implementation.
     /// </summary>
     /// <typeparam name="TPoolItem"></typeparam>
-    /// <typeparam name="TPreparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></typeparam>
+    /// <typeparam name="TStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></typeparam>
     /// <param name="services"><see cref="IServiceCollection"/></param>
     /// <returns><see cref="IServiceCollection"/></returns>
 #if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
 #endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddPreparationStrategy<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPreparationStrategy>(
+    public static IServiceCollection AddPreparationStrategy<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStrategy>(
         this IServiceCollection services)
         where TPoolItem : class
-        where TPreparationStrategy : class, IPreparationStrategy<TPoolItem>
+        where TStrategy : class, IPreparationStrategy<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
+        services.TryAddSingleton<IPreparationStrategy<TPoolItem>, TStrategy>();
+        return services;
+    }
+
+    /// <summary>
+    /// AddKeepAliveStrategy registers a custom <see cref="IKeepAliveStrategy{TPoolItem}"/> implementation.
+    /// </summary>
+    /// <typeparam name="TPoolItem"></typeparam>
+    /// <typeparam name="TStrategy"><see cref="IKeepAliveStrategy{TPoolItem}"/></typeparam>
+    /// <param name="services"><see cref="IServiceCollection"/></param>
+    /// <returns><see cref="IServiceCollection"/></returns>
+#if NET7_0_OR_GREATER
+    [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
+#endif
+    [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
+    public static IServiceCollection AddKeepAliveStrategy<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStrategy>(
+        this IServiceCollection services)
+        where TPoolItem : class
+        where TStrategy : class, IKeepAliveStrategy<TPoolItem>
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<IKeepAliveStrategy<TPoolItem>, TStrategy>();
         return services;
     }
 
@@ -78,21 +99,21 @@ public static class ServiceCollectionExtensions
     /// AddPoolItemFactory registers a custom <see cref="IItemFactory{TPoolItem}"/> implementation.
     /// </summary>
     /// <typeparam name="TPoolItem"></typeparam>
-    /// <typeparam name="TFactoryImplementation"><see cref="IItemFactory{TPoolItem}"/></typeparam>
+    /// <typeparam name="TFactory"><see cref="IItemFactory{TPoolItem}"/></typeparam>
     /// <param name="services"><see cref="IServiceCollection"/></param>
     /// <returns><see cref="IServiceCollection"/></returns>
 #if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
 #endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddPoolItemFactory<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation>(
+    public static IServiceCollection AddPoolItemFactory<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactory>(
         this IServiceCollection services)
         where TPoolItem : class
-        where TFactoryImplementation : class, IItemFactory<TPoolItem>
+        where TFactory : class, IItemFactory<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IItemFactory<TPoolItem>, TFactoryImplementation>();
+        services.TryAddSingleton<IItemFactory<TPoolItem>, TFactory>();
         return services;
     }
 
@@ -121,6 +142,39 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IItemFactory<TPoolItem>, TFactoryImplementation>();
         services.TryAddTransient<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
         services.TryAddTransient<IPool<TPoolItem>, Pool<TPoolItem>>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddDefaultPreparationStrategy<TPoolItem>(this IServiceCollection services, PoolOptions options)
+        where TPoolItem : class
+    {
+        if (options.UseDefaultPreparationStrategy)
+        {
+            services.TryAddSingleton<IPreparationStrategy<TPoolItem>, DefaultPreparationStrategy<TPoolItem>>();
+        }
+
+        return services;
+    }
+
+    private static IServiceCollection AddDefaultFactory<TPoolItem>(this IServiceCollection services, PoolOptions options)
+        where TPoolItem : class
+    {
+        if (options.UseDefaultFactory)
+        {
+            services.TryAddSingleton<IItemFactory<TPoolItem>, DefaultItemFactory<TPoolItem>>();
+        }
+
+        return services;
+    }
+
+    private static IServiceCollection AddDefaultKeepAliveStrategy<TPoolItem>(this IServiceCollection services, PoolOptions options)
+        where TPoolItem : class
+    {
+        if (options.UseDefaultKeepAliveStrategy)
+        {
+            services.TryAddSingleton<IKeepAliveStrategy<TPoolItem>, DefaultKeepAliveStrategy<TPoolItem>>();
+        }
 
         return services;
     }

@@ -35,4 +35,22 @@ public sealed class PoolOptions
     /// </summary>
     /// <remarks>Defaults to Timeout.InfiniteTimeSpan</remarks>
     public TimeSpan PreparationTimeout { get; init; } = Timeout.InfiniteTimeSpan;
+
+    /// <summary>
+    /// Set to true to register the default <see cref="IPreparationStrategy{TPoolItem}"/> implementation.
+    /// </summary>
+    /// <remarks>Defaults to false.</remarks>
+    public bool UseDefaultPreparationStrategy { get; set; }
+
+    /// <summary>
+    /// Set to true to register the default <see cref="IItemFactory{TPoolItem}"/> implementation.
+    /// </summary>
+    /// <remarks>Defaults to false.</remarks>
+    public bool UseDefaultFactory { get; set; }
+
+    /// <summary>
+    /// Set to true to register the default <see cref="IKeepAliveStrategy{TPoolItem}"/> implementation.
+    /// </summary>
+    /// <remarks>Defaults to false.</remarks>
+    public bool UseDefaultKeepAliveStrategy { get; set; }
 }

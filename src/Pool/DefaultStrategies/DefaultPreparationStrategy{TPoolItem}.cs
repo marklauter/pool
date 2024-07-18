@@ -1,4 +1,4 @@
-﻿namespace Pool;
+﻿namespace Pool.DefaultStrategies;
 
 internal sealed class DefaultPreparationStrategy<TPoolItem> : IPreparationStrategy<TPoolItem>
     where TPoolItem : class

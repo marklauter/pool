@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace Pool;
+namespace Pool.DefaultStrategies;
 
 internal sealed class DefaultItemFactory<TPoolItem>(IServiceProvider serviceProvider)
     : IItemFactory<TPoolItem>

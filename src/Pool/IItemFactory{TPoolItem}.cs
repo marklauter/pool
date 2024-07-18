@@ -1,4 +1,6 @@
-﻿namespace Pool;
+﻿using Pool.DefaultStrategies;
+
+namespace Pool;
 
 /// <summary>
 /// IPoolItemFactory creates pool items.
