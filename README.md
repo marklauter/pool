@@ -86,7 +86,7 @@ To use the default implementation, call `AddPool<TPoolItem>` or
 when registering the pool with the service collection.
 See [Dependency Injection](##dependency-injection) for more information.
 
-## Pool Item Preparation Strateg
+## Pool Item Preparation Strategy
 Implement the `IPreparationStrategy<TPoolItem>` interface to ensure an item is ready for use when leased from the pool.
 
 There's a default `IPreparationStrategy<TPoolItem>` implementation that always returns 
@@ -146,3 +146,4 @@ services.AddPool<IMailTransport>(configuration, options =>
 - 18 MAY 2024 - refactored dependency injection extensions. 
 - 18 MAY 2024 - refactored to use ValueTask on LeaseAsync method. 
 - 16 JUL 2024 - better naming and cleaned up smtp sample project.
+- 17 JUL 2025 - added idle timeout
