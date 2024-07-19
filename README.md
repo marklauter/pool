@@ -102,7 +102,7 @@ the connection.
 
 For example, if you're implementing an SMTP connection pool, 
 the lease operation can verify the connection to the STMP server 
-by invoking the SMTP `no-op`.  If the ready check fails, you can connect and authenticate to the SMTP server. 
+by invoking the SMTP `no-op`.  You can connect and authenticate to the SMTP server if the ready check fails. 
 
 Sample SMTP connection ready check implementation using `MailKit.IMailTransport`:
 ```csharp
