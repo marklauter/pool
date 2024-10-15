@@ -267,7 +267,7 @@ public sealed class Pool<TPoolItem>
             --ItemsAllocated;
         }
 
-        if (!IsPoolItemDisposable)
+        if (IsPoolItemDisposable)
         {
             (item as IDisposable)?.Dispose();
         }
