@@ -20,5 +20,5 @@ public sealed class Startup
             .Build();
 
     public void ConfigureServices(IServiceCollection services) => _ = services
-        .AddTestPool<IEcho, EchoFactory, EchoFactory>(configuration);
+        .AddTestPool<IEcho, string, EchoFactory, EchoFactory, EchoConnectionFactory>(configuration);
 }
