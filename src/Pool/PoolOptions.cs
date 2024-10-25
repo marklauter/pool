@@ -6,13 +6,13 @@
 public sealed class PoolOptions
 {
     /// <summary>
-    /// MinSize gets or sets the minimum number of items in the pool.
+    /// MinSize gets or sets the minimum number of pools in the pool.
     /// </summary>
     /// <remarks>Defaults to zero.</remarks>
     public int MinSize { get; set; }
 
     /// <summary>
-    /// MaxSize gets or sets the maximum number of items in the pool.
+    /// MaxSize gets or sets the maximum number of pools in the pool.
     /// </summary>
     /// <remarks>Defaults to Int32.MaxValue</remarks>
     public int MaxSize { get; set; } = Int32.MaxValue;

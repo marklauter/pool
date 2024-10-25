@@ -3,7 +3,7 @@
 namespace Pool;
 
 /// <summary>
-/// IPoolItemFactory creates pool items.
+/// IPoolItemFactory creates pool pools.
 /// </summary>
 /// <typeparam name="TPoolItem"></typeparam>
 /// <remarks>Implement your own factory, or use the <see cref="DefaultItemFactory{TPoolItem}"/>.</remarks>
@@ -13,6 +13,6 @@ public interface IItemFactory<TPoolItem>
     /// <summary>
     /// CreateItem returns a new pool item instance.
     /// </summary>
-    /// <returns>TPoolItem</returns>
+    /// <returns>TPool</returns>
     TPoolItem CreateItem();
 }

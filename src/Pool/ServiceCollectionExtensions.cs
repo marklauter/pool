@@ -104,13 +104,19 @@ public static class ServiceCollectionExtensions
     [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "the case is handled in the conditional compile directives above")]
     internal static IServiceCollection AddTestPool<
         TPoolItem,
+        TPool,
+        TKey,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation,
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPreparationStrategy>(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPreparationStrategy,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPoolMapPreparationStrategy>(
         this IServiceCollection services,
         IConfiguration configuration)
         where TPoolItem : class
+        where TPool : class
+        where TKey : class
         where TFactoryImplementation : class, IItemFactory<TPoolItem>
         where TPreparationStrategy : class, IPreparationStrategy<TPoolItem>
+        where TPoolMapPreparationStrategy : class, IPreparationStrategy<TKey, TPool>
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -118,7 +124,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>() ?? new PoolOptions());
         services.TryAddTransient<IItemFactory<TPoolItem>, TFactoryImplementation>();
         services.TryAddTransient<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
+        services.TryAddTransient<IPreparationStrategy<TKey, TPool>, TPoolMapPreparationStrategy>();
         services.TryAddTransient<IPool<TPoolItem>, Pool<TPoolItem>>();
+        services.TryAddTransient<IPoolMap<TKey, TPool>, PoolMap<TKey, TPool>>();
 
         return services;
     }
