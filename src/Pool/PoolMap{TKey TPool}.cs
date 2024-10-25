@@ -91,11 +91,7 @@ public sealed class PoolMap<TKey, TPool>
 
     /// <inheritdoc/>>
     public async Task ClearAsync(CancellationToken cancellationToken)
-    {
-        var tasks = pools.Select(x => x.Value.ClearAsync(cancellationToken));
-
-        await Task.WhenAll(tasks);
-    }
+        => await Task.WhenAll(pools.Select(x => x.Value.ClearAsync(cancellationToken)));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool TryAcquireItem(TKey connectionKey, out Pool<TPool> item) =>
