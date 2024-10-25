@@ -2,7 +2,7 @@
 using Pool.Tests.Fakes;
 
 namespace Pool.Tests;
-public sealed class ConnectionPoolTests(IConnectionPool<string, IEcho> pool)
+public sealed class PoolMapTests(IPoolMap<string, IEcho> pool)
 {
 
     [Fact]

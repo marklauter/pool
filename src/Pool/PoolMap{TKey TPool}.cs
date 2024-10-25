@@ -4,21 +4,21 @@ using System.Runtime.CompilerServices;
 namespace Pool;
 
 /// <inheritdoc/>>
-public sealed class ConnectionPool<TConnectionKey, TPoolItem>
-    : IConnectionPool<TConnectionKey, TPoolItem>
+public sealed class PoolMap<TKey, TPool>
+    : IPoolMap<TKey, TPool>
     , IDisposable
-    where TConnectionKey : class
-    where TPoolItem : class
+    where TKey : class
+    where TPool : class
 {
 
-    private static readonly bool IsPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
+    private static readonly bool IsPoolItemDisposable = typeof(TPool).GetInterface(nameof(IDisposable), true) is not null;
 
-    private readonly ConcurrentDictionary<TConnectionKey, Pool<TPoolItem>> items = new();
+    private readonly ConcurrentDictionary<TKey, Pool<TPool>> pools = new();
     private readonly PoolOptions poolOptions;
     private readonly bool preparationRequired;
-    private readonly IItemFactory<TPoolItem> itemFactory;
-    private readonly IPreparationStrategy<TPoolItem>? preparationStrategy;
-    private readonly IPreparationStrategy<TConnectionKey, TPoolItem>? connectionpreparationStrategy;
+    private readonly IItemFactory<TPool> itemFactory;
+    private readonly IPreparationStrategy<TPool>? preparationStrategy;
+    private readonly IPreparationStrategy<TKey, TPool>? connectionpreparationStrategy;
     private readonly TimeSpan preparationTimeout;
     private bool disposed;
 
@@ -27,8 +27,8 @@ public sealed class ConnectionPool<TConnectionKey, TPoolItem>
     /// </summary>
     /// <param name="itemFactory"></param>
     /// <param name="options"></param>
-    public ConnectionPool(
-        IItemFactory<TPoolItem> itemFactory,
+    public PoolMap(
+        IItemFactory<TPool> itemFactory,
         PoolOptions options)
         : this(itemFactory, null, null, options)
     { }
@@ -41,10 +41,10 @@ public sealed class ConnectionPool<TConnectionKey, TPoolItem>
     /// <param name="connectionpreparationStrategy"><see cref="IPreparationStrategy{TConnectionKeyTPoolItem}"/></param>
     /// <param name="options"><see cref="PoolOptions"/></param>
     /// <exception cref="ArgumentNullException"></exception>
-    public ConnectionPool(
-        IItemFactory<TPoolItem> itemFactory,
-        IPreparationStrategy<TPoolItem>? preparationStrategy,
-        IPreparationStrategy<TConnectionKey, TPoolItem>? connectionpreparationStrategy,
+    public PoolMap(
+        IItemFactory<TPool> itemFactory,
+        IPreparationStrategy<TPool>? preparationStrategy,
+        IPreparationStrategy<TKey, TPool>? connectionpreparationStrategy,
         PoolOptions options)
     {
         this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
@@ -60,33 +60,30 @@ public sealed class ConnectionPool<TConnectionKey, TPoolItem>
     public int UniqueLeases { get; private set; }
 
     /// <inheritdoc/>>
-    public int ItemsAvailable => items.Count;
-
-    /// <inheritdoc/>>
-    public int QueuedLeases => items.Select(x => x.Value).Select(x => x.QueuedLeases).Sum();
+    public int QueuedLeases => pools.Select(x => x.Value).Select(x => x.QueuedLeases).Sum();
 
     /// <inheritdoc/>>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueTask<TPoolItem> LeaseAsync(TConnectionKey connectionKey) => LeaseAsync(connectionKey, CancellationToken.None);
+    public ValueTask<TPool> LeaseAsync(TKey key) => LeaseAsync(key, CancellationToken.None);
 
     /// <inheritdoc/>>
-    public async ValueTask<TPoolItem> LeaseAsync(TConnectionKey connectionKey, CancellationToken cancellationToken)
+    public async ValueTask<TPool> LeaseAsync(TKey key, CancellationToken cancellationToken)
     {
-        _ = ThrowIfDisposed().TryAcquireItem(connectionKey, out var item);
+        _ = ThrowIfDisposed().TryAcquireItem(key, out var item);
 
         var pooItem = await LeasePoolItemAsync(item, cancellationToken);
-        return await EnsurePreparedAsync(connectionKey, pooItem, cancellationToken);
+        return await EnsurePreparedAsync(key, pooItem, cancellationToken);
     }
 
     /// <inheritdoc/>>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task ReleaseAsync(TConnectionKey connectionKey, TPoolItem item) => ReleaseAsync(connectionKey, item, CancellationToken.None);
+    public Task ReleaseAsync(TKey key, TPool pool) => ReleaseAsync(key, pool, CancellationToken.None);
 
     /// <inheritdoc/>>
     public async Task ReleaseAsync(
-        TConnectionKey connectionKey,
-        TPoolItem item,
-        CancellationToken cancellationToken) => await items[connectionKey].ReleaseAsync(item, cancellationToken);
+        TKey key,
+        TPool pool,
+        CancellationToken cancellationToken) => await pools[key].ReleaseAsync(pool, cancellationToken);
 
     /// <inheritdoc/>>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -95,34 +92,34 @@ public sealed class ConnectionPool<TConnectionKey, TPoolItem>
     /// <inheritdoc/>>
     public async Task ClearAsync(CancellationToken cancellationToken)
     {
-        var tasks = items.Select(x => x.Value.ClearAsync(cancellationToken));
+        var tasks = pools.Select(x => x.Value.ClearAsync(cancellationToken));
 
         await Task.WhenAll(tasks);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool TryAcquireItem(TConnectionKey connectionKey, out Pool<TPoolItem> item) =>
+    private bool TryAcquireItem(TKey connectionKey, out Pool<TPool> item) =>
         TryGetItem(connectionKey, out item) || TryCreateItem(connectionKey, out item);
 
-    private bool TryCreateItem(TConnectionKey connectionKey, out Pool<TPoolItem> item)
+    private bool TryCreateItem(TKey connectionKey, out Pool<TPool> item)
     {
         lock (this)
         {
-            item = new Pool<TPoolItem>(itemFactory, preparationStrategy, poolOptions);
+            item = new Pool<TPool>(itemFactory, preparationStrategy, poolOptions);
             ++UniqueLeases;
-            _ = items.TryAdd(connectionKey, item);
+            _ = pools.TryAdd(connectionKey, item);
             return true;
         }
     }
 
-    private bool TryGetItem(TConnectionKey connectionKey, out Pool<TPoolItem> item) => items.TryGetValue(connectionKey, out item!);
+    private bool TryGetItem(TKey connectionKey, out Pool<TPool> item) => pools.TryGetValue(connectionKey, out item!);
 
-    private static async ValueTask<TPoolItem> LeasePoolItemAsync(Pool<TPoolItem> pool, CancellationToken cancellationToken)
+    private static async ValueTask<TPool> LeasePoolItemAsync(Pool<TPool> pool, CancellationToken cancellationToken)
         => await pool.LeaseAsync(cancellationToken);
 
-    private async ValueTask<TPoolItem> EnsurePreparedAsync(
-        TConnectionKey connectionKey,
-        TPoolItem item,
+    private async ValueTask<TPool> EnsurePreparedAsync(
+        TKey connectionKey,
+        TPool item,
         CancellationToken cancellationToken)
     {
         using var timeoutCts = new CancellationTokenSource(preparationTimeout);
@@ -142,8 +139,8 @@ public sealed class ConnectionPool<TConnectionKey, TPoolItem>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private ConnectionPool<TConnectionKey, TPoolItem> ThrowIfDisposed() => disposed
-        ? throw new ObjectDisposedException(nameof(ConnectionPool<TConnectionKey, TPoolItem>))
+    private PoolMap<TKey, TPool> ThrowIfDisposed() => disposed
+        ? throw new ObjectDisposedException(nameof(PoolMap<TKey, TPool>))
         : this;
 
     /// <inheritdoc/>

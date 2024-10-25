@@ -1,7 +1,7 @@
 ﻿namespace Pool;
 
 /// <summary>
-/// IPreparationStrategy is an interface for preparing pool items before the pool leases them to the caller.
+/// IPreparationStrategy is an interface for preparing pool pools before the pool leases them to the caller.
 /// </summary>
 /// <typeparam name="TPoolItem"></typeparam>
 public interface IPreparationStrategy<TPoolItem>

@@ -1,7 +1,7 @@
 ﻿
 namespace Pool.Tests.Fakes;
 
-internal sealed class EchoConnectionFactory
+internal sealed class EchoMapFactory
     : IItemFactory<IEcho>
     , IPreparationStrategy<string, IEcho>
 {
