@@ -351,6 +351,7 @@ dotnet_diagnostic.IDE1005.severity = suggestion
 dotnet_diagnostic.IDE2003.severity = suggestion
 dotnet_diagnostic.IDE2005.severity = suggestion
 dotnet_diagnostic.IDE2006.severity = suggestion
+csharp_prefer_system_threading_lock = true:suggestion
 
 [*.{cs,vb}]
 dotnet_style_operator_placement_when_wrapping = beginning_of_line
