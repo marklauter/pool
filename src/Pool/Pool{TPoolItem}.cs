@@ -258,26 +258,12 @@ public sealed class Pool<TPoolItem>
 
     private bool TryCreateItem(out PoolItem item)
     {
+        bool canCreate;
         lock (this)
         {
-            if (ItemsAllocated >= maxSize)
+            canCreate = ItemsAllocated < maxSize;
+            if (!canCreate)
             {
-                item = default;
-                return false;
-            }
-        }
-
-        item = PoolItem.Create(itemFactory.CreateItem());
-        lock (this)
-        {
-            // if the max size was reached while creating the item, return false
-            if (ItemsAllocated >= maxSize)
-            {
-                if (IsPoolItemDisposable)
-                {
-                    (item as IDisposable)?.Dispose();
-                }
-
                 item = default;
                 return false;
             }
@@ -285,6 +271,8 @@ public sealed class Pool<TPoolItem>
             ++ItemsAllocated;
         }
 
+        var poolItem = itemFactory.CreateItem();
+        item = PoolItem.Create(poolItem);
         return true;
     }
 
