@@ -1,4 +1,6 @@
-﻿using System.Collections.Concurrent;
+﻿using Pool.Metrics;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
@@ -128,31 +130,42 @@ public sealed class Pool<TPoolItem>
     private readonly TimeSpan idleTimeout;
     private readonly TimeSpan preparationTimeout;
     private bool disposed;
+    private readonly IPoolMetrics metrics;
+
+    /// <summary>
+    /// PoolName is the name of the pool in the form $"{typeof(TPoolItem).Name}.Pool"
+    /// </summary>
+    public static readonly string PoolName = $"{typeof(TPoolItem).Name}.Pool";
 
     /// <summary>
     /// ctor
     /// </summary>
-    /// <param name="itemFactory"></param>
-    /// <param name="options"></param>
+    /// <param name="metrics"><see cref="IPoolMetrics"/></param>
+    /// <param name="itemFactory"><see cref="IItemFactory{TPoolItem}"/></param>
+    /// <param name="options"><see cref="PoolOptions"/></param>
     public Pool(
+        IPoolMetrics metrics,
         IItemFactory<TPoolItem> itemFactory,
         PoolOptions options)
-        : this(itemFactory, null, options)
+        : this(metrics, itemFactory, null, options)
     { }
 
     /// <summary>
     /// ctor
     /// </summary>
+    /// <param name="metrics"><see cref="IPoolMetrics"/></param>
     /// <param name="itemFactory"><see cref="IItemFactory{TPoolItem}"/></param>
     /// <param name="preparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></param>
     /// <param name="options"><see cref="PoolOptions"/></param>
     /// <exception cref="ArgumentNullException"></exception>
     public Pool(
+        IPoolMetrics metrics,
         IItemFactory<TPoolItem> itemFactory,
         IPreparationStrategy<TPoolItem>? preparationStrategy,
         PoolOptions options)
     {
         this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
+        this.metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
 
         preparationRequired = preparationStrategy is not null;
         this.preparationStrategy = preparationStrategy;
@@ -171,7 +184,7 @@ public sealed class Pool<TPoolItem>
     public int ItemsAllocated { get; private set; }
 
     /// <inheritdoc/>
-    public int ItemsAvailable => pool.Count;
+    public int ItemsAvailable => pool?.Count ?? 0;
 
     /// <inheritdoc/>
     public int ActiveLeases => ItemsAllocated - ItemsAvailable;
@@ -180,21 +193,36 @@ public sealed class Pool<TPoolItem>
     public int QueuedLeases => leaseRequests.Count;
 
     /// <inheritdoc/>
+    public string Name => PoolName;
+
+    /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ValueTask<TPoolItem> LeaseAsync() => LeaseAsync(CancellationToken.None);
 
     /// <inheritdoc/>
     public async ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
-        if (ThrowIfDisposed().TryAcquireItem(out var item))
+        var timer = Stopwatch.StartNew();
+        try
         {
-            return await EnsurePreparedAsync(item.Item, cancellationToken);
+            if (ThrowIfDisposed().TryAcquireItem(out var item))
+            {
+                metrics.RecordLeaseWaitTime(timer.Elapsed);
+                return await EnsurePreparedAsync(item.Item, cancellationToken);
+            }
+
+            var leaseRequest = new LeaseRequest(leaseTimeout, cancellationToken);
+            leaseRequests.Enqueue(leaseRequest);
+
+            var result = await leaseRequest.Task;
+            metrics.RecordLeaseWaitTime(timer.Elapsed);
+            return result;
         }
-
-        var leaseRequest = new LeaseRequest(leaseTimeout, cancellationToken);
-        leaseRequests.Enqueue(leaseRequest);
-
-        return await leaseRequest.Task;
+        catch (Exception)
+        {
+            metrics.RecordLeaseFailure();
+            throw;
+        }
     }
 
     /// <inheritdoc/>
@@ -206,7 +234,14 @@ public sealed class Pool<TPoolItem>
         TPoolItem item,
         CancellationToken cancellationToken)
     {
-        _ = ThrowIfDisposed();
+        if (ThrowIfDisposed().leaseRequests.IsEmpty)
+        {
+            // no active lease requests, so return the item to the pool
+            pool.Enqueue(PoolItem.Create(item));
+            return;
+        }
+
+        item = await EnsurePreparedAsync(item, cancellationToken);
         while (leaseRequests.TryDequeue(out var leaseRequest))
         {
             // Tries to set the task result and return, which unblocks the caller awaiting the lease request.
@@ -215,13 +250,13 @@ public sealed class Pool<TPoolItem>
             // and the caller already knows about the cancelation,
             // so we can safely ignore the lease request.
             // This effectively purges dead requests from the queue.
-            if (leaseRequest.TrySetResult(await EnsurePreparedAsync(item, cancellationToken)))
+            if (leaseRequest.TrySetResult(item))
             {
                 return;
             }
         }
 
-        // no active lease requests, so return the item to the pool
+        // no valid lease requests, so return the item to the pool
         pool.Enqueue(PoolItem.Create(item));
     }
 
@@ -234,10 +269,9 @@ public sealed class Pool<TPoolItem>
     {
         ThrowIfDisposed().EnsureItemsDisposed();
 
-        var tasks = CreateItems(QueuedLeases > initialSize ? QueuedLeases : initialSize)
-            .Select(item => ReleaseAsync(item, cancellationToken));
-
-        await Task.WhenAll(tasks);
+        await Task.WhenAll(
+            CreateItems(QueuedLeases > initialSize ? QueuedLeases : initialSize)
+            .Select(item => ReleaseAsync(item, cancellationToken)));
     }
 
     private IEnumerable<TPoolItem> CreateItems(int count)
@@ -245,10 +279,11 @@ public sealed class Pool<TPoolItem>
         lock (this)
         {
             ItemsAllocated = count;
-            for (var i = 0; i < count; i++)
-            {
-                yield return itemFactory.CreateItem();
-            }
+        }
+
+        for (var i = 0; i < count; i++)
+        {
+            yield return CreateItem(i + 1);
         }
     }
 
@@ -259,6 +294,7 @@ public sealed class Pool<TPoolItem>
     private bool TryCreateItem(out PoolItem item)
     {
         bool canCreate;
+        int allocated;
         lock (this)
         {
             canCreate = ItemsAllocated < maxSize;
@@ -268,11 +304,18 @@ public sealed class Pool<TPoolItem>
                 return false;
             }
 
-            ++ItemsAllocated;
+            allocated = IncrmentItemsAllocated(false);
         }
 
-        item = PoolItem.Create(itemFactory.CreateItem());
+        item = PoolItem.Create(CreateItem(allocated));
         return true;
+    }
+
+    private TPoolItem CreateItem(int allocated)
+    {
+        metrics.RecordItemCreated();
+        metrics.RecordPoolUtilization(ActiveLeases, allocated);
+        return itemFactory.CreateItem();
     }
 
     private bool TryDequeue(out PoolItem item)
@@ -297,15 +340,35 @@ public sealed class Pool<TPoolItem>
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
     private void RemoveItem(TPoolItem item)
     {
-        lock (this)
-        {
-            --ItemsAllocated;
-        }
-
+        metrics.RecordPoolUtilization(ActiveLeases, DecrementItemsAllocated());
         if (IsPoolItemDisposable)
         {
             (item as IDisposable)?.Dispose();
+            metrics.RecordItemDisposed();
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int DecrementItemsAllocated()
+    {
+        lock (this)
+        {
+            return --ItemsAllocated;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int IncrmentItemsAllocated(bool withLock)
+    {
+        if (withLock)
+        {
+            lock (this)
+            {
+                return ++ItemsAllocated;
+            }
+        }
+
+        return ++ItemsAllocated;
     }
 
     private async ValueTask<TPoolItem> EnsurePreparedAsync(
@@ -317,20 +380,28 @@ public sealed class Pool<TPoolItem>
             return item;
         }
 
-        using var timeoutCts = new CancellationTokenSource(preparationTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            timeoutCts.Token,
-            cancellationToken);
-        cancellationToken = linkedCts.Token;
-
-        if (await preparationStrategy!.IsReadyAsync(item, cancellationToken))
+        var timer = Stopwatch.StartNew();
+        try
         {
+            using var timeoutCts = new CancellationTokenSource(preparationTimeout);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+            cancellationToken = linkedCts.Token;
+
+            if (await preparationStrategy!.IsReadyAsync(item, cancellationToken))
+            {
+                return item;
+            }
+
+            await preparationStrategy.PrepareAsync(item, cancellationToken);
+
+            metrics.RecordPreparationTime(timer.Elapsed);
             return item;
         }
-
-        await preparationStrategy.PrepareAsync(item, cancellationToken);
-
-        return item;
+        catch
+        {
+            metrics.RecordPreparationFailure();
+            throw;
+        }
     }
 
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
