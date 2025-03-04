@@ -4,9 +4,9 @@ namespace Pool.Tests.Fakes;
 
 internal sealed class Echo
     : IEcho
-    , IDisposable
 {
     private bool disposed;
+    public bool IsDisposed() => disposed;
 
     public bool IsConnected { get; private set; }
 
