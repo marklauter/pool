@@ -4,12 +4,15 @@ using System.Runtime.CompilerServices;
 
 namespace Pool;
 
-/// <inheritdoc/>>
+/// <inheritdoc/>
 public sealed class Pool<TPoolItem>
     : IPool<TPoolItem>
-    , IDisposable
     where TPoolItem : class
 {
+    /// <summary>
+    /// LeaseRequest allows async leasing of pool items. 
+    /// It's essentially a wrapper around a task completion source.
+    /// </summary>
     private sealed class LeaseRequest
         : IDisposable
     {
@@ -18,45 +21,57 @@ public sealed class Pool<TPoolItem>
         private readonly TaskCompletionSource<TPoolItem> taskCompletionSource = new();
         private readonly CancellationTokenSource? timeoutTokenSource;
         private readonly CancellationTokenSource? linkedTokenSource;
+        private readonly CancellationTokenRegistration? cancellationTokenRegistration;
         private bool disposed;
 
         public LeaseRequest(TimeSpan timeout, CancellationToken cancellationToken)
         {
-            // no timeout, so register cancellation token only
+            // when timeout is infinite and cancellation token is none, don't register any callbacks
             if (timeout == Timeout.InfiniteTimeSpan)
             {
-                _ = cancellationToken.Register(TaskSetCanceled);
+                // when timeout is infinite and cancellation token is not none, register cancellation token canceled callback
+                if (cancellationToken != CancellationToken.None)
+                {
+                    cancellationTokenRegistration = cancellationToken.Register(Cancel);
+                }
+
                 return;
             }
 
             timeoutTokenSource = new CancellationTokenSource(timeout);
-            // no cancellation token, so register timeout only
+
+            // when cancellation token is none, only register timeout token canceled callback
             if (cancellationToken == CancellationToken.None)
             {
-                _ = timeoutTokenSource.Token.Register(TaskSetCanceled);
+                cancellationTokenRegistration = timeoutTokenSource.Token.Register(Cancel);
                 return;
             }
 
-            // both timeout and cancellation token, so register linked token source
+            // when both timeout and cancellation token are provided, register linked token canceled callback
             linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 timeoutTokenSource.Token);
 
-            _ = linkedTokenSource.Token.Register(TaskSetCanceled);
+            cancellationTokenRegistration = linkedTokenSource.Token.Register(Cancel);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void TaskSetResult(TPoolItem item)
+        public bool TrySetResult(TPoolItem item)
         {
             if (taskCompletionSource.TrySetResult(item))
             {
                 Dispose();
+                return true;
             }
+
+            return false;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void TaskSetCanceled()
+        private void Cancel()
         {
+            // if taskCompletionSource.Task.IsCompletedSuccessfully, then dispose is already called
+            // if taskCompletionSource.TrySetCanceled() returns false, then it's already canceled, faulted, or completed (ran to completion)
             if (!taskCompletionSource.Task.IsCompletedSuccessfully
                 && taskCompletionSource.TrySetCanceled())
             {
@@ -64,7 +79,7 @@ public sealed class Pool<TPoolItem>
             }
         }
 
-        private void Dispose(bool disposing)
+        public void Dispose()
         {
             if (disposed)
             {
@@ -73,34 +88,37 @@ public sealed class Pool<TPoolItem>
 
             disposed = true;
 
-            if (disposing)
+            if (timeoutTokenSource is not null)
             {
-                if (timeoutTokenSource is not null)
-                {
-                    // Canceling unblocks any awaiters.
-                    // Cancel() will either call SetCanceled() directly if there is no linked token source,
-                    // or it will trigger Cancel() on the linked token source,
-                    // so the linked token source will not need to be canceled explicitly.
-                    timeoutTokenSource.Cancel();
-                    timeoutTokenSource.Dispose();
-                }
-
-                linkedTokenSource?.Dispose();
+                // 1.  Canceling unblocks any awaiters.
+                // 2.  Cancel() will either...
+                //      2.a  call SetCanceled() directly if there is no linked token source,
+                //      2.b  or it will trigger Cancel() on the linked token source,
+                // 3.  so the linked token source does not need to be canceled explicitly.
+                timeoutTokenSource.Cancel();
+                timeoutTokenSource.Dispose();
             }
-        }
 
-        public void Dispose() => Dispose(disposing: true);
+            linkedTokenSource?.Dispose();
+
+            cancellationTokenRegistration?.Dispose();
+
+            Cancel();
+        }
     }
 
-    private record struct PoolItem(DateTime IdleSince, TPoolItem? Item)
+    private readonly record struct PoolItem(
+        DateTime IdleSince,
+        TPoolItem Item)
     {
         public static PoolItem Create(TPoolItem item) => new(DateTime.UtcNow, item);
+        public TimeSpan IdleTime => DateTime.UtcNow - IdleSince;
     }
 
     private static readonly bool IsPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
 
-    private readonly ConcurrentQueue<PoolItem> items;
-    private readonly ConcurrentQueue<LeaseRequest> requests = new();
+    private readonly ConcurrentQueue<PoolItem> pool;
+    private readonly ConcurrentQueue<LeaseRequest> leaseRequests = new();
     private readonly int maxSize;
     private readonly int initialSize;
     private readonly bool preparationRequired;
@@ -146,62 +164,72 @@ public sealed class Pool<TPoolItem>
         idleTimeout = options?.IdleTimeout ?? Timeout.InfiniteTimeSpan;
         preparationTimeout = options?.PreparationTimeout ?? Timeout.InfiniteTimeSpan;
 
-        items = new(CreateItems(initialSize).Select(PoolItem.Create));
+        pool = new(CreateItems(initialSize).Select(PoolItem.Create));
     }
 
-    /// <inheritdoc/>>
+    /// <inheritdoc/>
     public int ItemsAllocated { get; private set; }
 
-    /// <inheritdoc/>>
-    public int ItemsAvailable => items.Count;
+    /// <inheritdoc/>
+    public int ItemsAvailable => pool.Count;
 
-    /// <inheritdoc/>>
+    /// <inheritdoc/>
     public int ActiveLeases => ItemsAllocated - ItemsAvailable;
 
-    /// <inheritdoc/>>
-    public int QueuedLeases => requests.Count;
+    /// <inheritdoc/>
+    public int QueuedLeases => leaseRequests.Count;
 
-    /// <inheritdoc/>>
+    /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ValueTask<TPoolItem> LeaseAsync() => LeaseAsync(CancellationToken.None);
 
-    /// <inheritdoc/>>
+    /// <inheritdoc/>
     public async ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
         if (ThrowIfDisposed().TryAcquireItem(out var item))
         {
-            return await EnsurePreparedAsync(item.Item!, cancellationToken);
+            return await EnsurePreparedAsync(item.Item, cancellationToken);
         }
 
         var leaseRequest = new LeaseRequest(leaseTimeout, cancellationToken);
-        requests.Enqueue(leaseRequest);
+        leaseRequests.Enqueue(leaseRequest);
 
         return await leaseRequest.Task;
     }
 
-    /// <inheritdoc/>>
+    /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Task ReleaseAsync(TPoolItem item) => ReleaseAsync(item, CancellationToken.None);
 
-    /// <inheritdoc/>>
+    /// <inheritdoc/>
     public async Task ReleaseAsync(
         TPoolItem item,
         CancellationToken cancellationToken)
     {
-        if (ThrowIfDisposed().requests.TryDequeue(out var leaseRequest))
+        _ = ThrowIfDisposed();
+        while (leaseRequests.TryDequeue(out var leaseRequest))
         {
-            leaseRequest.TaskSetResult(await EnsurePreparedAsync(item, cancellationToken));
-            return;
+            // Tries to set the task result and return, which unblocks the caller awaiting the lease request.
+            // if TryTaskSetResult returns false,
+            // then the lease request is timed out or canceled,
+            // and the caller already knows about the cancelation,
+            // so we can safely ignore the lease request.
+            // This effectively purges dead requests from the queue.
+            if (leaseRequest.TrySetResult(await EnsurePreparedAsync(item, cancellationToken)))
+            {
+                return;
+            }
         }
 
-        items.Enqueue(PoolItem.Create(item));
+        // no active lease requests, so return the item to the pool
+        pool.Enqueue(PoolItem.Create(item));
     }
 
-    /// <inheritdoc/>>
+    /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Task ClearAsync() => ClearAsync(CancellationToken.None);
 
-    /// <inheritdoc/>>
+    /// <inheritdoc/>
     public async Task ClearAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed().EnsureItemsDisposed();
@@ -246,18 +274,22 @@ public sealed class Pool<TPoolItem>
 
     private bool TryDequeue(out PoolItem item)
     {
-        while (items.TryDequeue(out item))
+        while (pool.TryDequeue(out item))
         {
-            if (idleTimeout == Timeout.InfiniteTimeSpan || DateTime.UtcNow - item.IdleSince < idleTimeout)
+            if (IdleTimeIsNotExceeded(idleTimeout, item))
             {
                 return true;
             }
 
-            RemoveItem(item.Item!);
+            RemoveItem(item.Item);
         }
 
         return false;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IdleTimeIsNotExceeded(TimeSpan idleTimeout, PoolItem item) =>
+        idleTimeout == Timeout.InfiniteTimeSpan || item.IdleTime < idleTimeout;
 
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
     private void RemoveItem(TPoolItem item)
@@ -306,7 +338,7 @@ public sealed class Pool<TPoolItem>
             return;
         }
 
-        while (items.TryDequeue(out var item))
+        while (pool.TryDequeue(out var item))
         {
             (item.Item as IDisposable)?.Dispose();
         }
@@ -325,7 +357,7 @@ public sealed class Pool<TPoolItem>
             return;
         }
 
-        while (requests.TryDequeue(out var leaseRequest))
+        while (leaseRequests.TryDequeue(out var leaseRequest))
         {
             leaseRequest.Dispose();
         }
