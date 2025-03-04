@@ -1,10 +1,11 @@
 ﻿namespace Pool;
 
 /// <summary>
-/// pool
+/// A Pool of TPoolItem
 /// </summary>
 /// <typeparam name="TPoolItem"></typeparam>
 public interface IPool<TPoolItem>
+    : IDisposable
     where TPoolItem : class
 {
     /// <summary>
