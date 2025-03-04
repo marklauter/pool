@@ -258,18 +258,34 @@ public sealed class Pool<TPoolItem>
 
     private bool TryCreateItem(out PoolItem item)
     {
-        item = default;
         lock (this)
         {
             if (ItemsAllocated >= maxSize)
             {
+                item = default;
+                return false;
+            }
+        }
+
+        item = PoolItem.Create(itemFactory.CreateItem());
+        lock (this)
+        {
+            // if the max size was reached while creating the item, return false
+            if (ItemsAllocated >= maxSize)
+            {
+                if (IsPoolItemDisposable)
+                {
+                    (item as IDisposable)?.Dispose();
+                }
+
+                item = default;
                 return false;
             }
 
             ++ItemsAllocated;
-            item = PoolItem.Create(itemFactory.CreateItem());
-            return true;
         }
+
+        return true;
     }
 
     private bool TryDequeue(out PoolItem item)
