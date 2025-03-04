@@ -13,12 +13,12 @@ public sealed class Startup
             {
                 { "PoolOptions:PreparationRequired", "true" },
                 { "PoolOptions:MinSize", "1" },
-                { "PoolOptions:MaxSize", "1" },
+                { "PoolOptions:MaxSize", "2" },
                 { "PoolOptions:LeaseTimeout", "00:00:00.01" },
                 { "PoolOptions:PreparationTimeout", "00:00:00.01" },
             }!)
             .Build();
 
     public void ConfigureServices(IServiceCollection services) => _ = services
-        .AddTestPool<IEcho, EchoFactory, EchoFactory>(configuration);
+        .AddTestPool<IEcho, EchoFactory, EchoPreparationStrategy>(configuration);
 }
