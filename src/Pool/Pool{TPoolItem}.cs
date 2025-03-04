@@ -271,8 +271,7 @@ public sealed class Pool<TPoolItem>
             ++ItemsAllocated;
         }
 
-        var poolItem = itemFactory.CreateItem();
-        item = PoolItem.Create(poolItem);
+        item = PoolItem.Create(itemFactory.CreateItem());
         return true;
     }
 
