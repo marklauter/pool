@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Pool.DefaultStrategies;
 using Pool.Metrics;
 using System.Diagnostics.CodeAnalysis;
@@ -99,7 +100,8 @@ public static class ServiceCollectionExtensions
         where TPoolItem : class
     {
         ArgumentNullException.ThrowIfNull(services);
-        return services.AddSingleton<IPoolMetrics>(new DefaultPoolMetrics(Pool<TPoolItem>.PoolName));
+        return services.AddSingleton<IPoolMetrics>((services) =>
+            new DefaultPoolMetrics(Pool<TPoolItem>.PoolName, services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
     }
 
     /// <summary>

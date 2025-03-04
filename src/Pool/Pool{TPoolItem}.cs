@@ -166,10 +166,14 @@ public sealed class Pool<TPoolItem>
     {
         this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
         this.metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        this.metrics.RegisterItemsAllocatedObserver(() => ItemsAllocated);
+        this.metrics.RegisterItemsAvailableObserver(() => ItemsAvailable);
+        this.metrics.RegisterActiveLeasesObserver(() => ActiveLeases);
+        this.metrics.RegisterQueuedLeasesObserver(() => QueuedLeases);
+        this.metrics.RegisterUtilizationRateObserver(() => (double)ActiveLeases / ItemsAllocated);
 
         preparationRequired = preparationStrategy is not null;
         this.preparationStrategy = preparationStrategy;
-
         maxSize = options?.MaxSize ?? Int32.MaxValue;
         initialSize = Math.Min(options?.MinSize ?? 0, maxSize);
 
@@ -180,8 +184,9 @@ public sealed class Pool<TPoolItem>
         pool = new(CreateItems(initialSize).Select(PoolItem.Create));
     }
 
+    private volatile int itemsAllocated;
     /// <inheritdoc/>
-    public int ItemsAllocated { get; private set; }
+    public int ItemsAllocated => itemsAllocated;
 
     /// <inheritdoc/>
     public int ItemsAvailable => pool?.Count ?? 0;
@@ -218,9 +223,9 @@ public sealed class Pool<TPoolItem>
             metrics.RecordLeaseWaitTime(timer.Elapsed);
             return result;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            metrics.RecordLeaseFailure();
+            metrics.RecordLeaseException(ex);
             throw;
         }
     }
@@ -278,12 +283,12 @@ public sealed class Pool<TPoolItem>
     {
         lock (this)
         {
-            ItemsAllocated = count;
+            itemsAllocated = count;
         }
 
         for (var i = 0; i < count; i++)
         {
-            yield return CreateItem(i + 1);
+            yield return itemFactory.CreateItem();
         }
     }
 
@@ -294,7 +299,6 @@ public sealed class Pool<TPoolItem>
     private bool TryCreateItem(out PoolItem item)
     {
         bool canCreate;
-        int allocated;
         lock (this)
         {
             canCreate = ItemsAllocated < maxSize;
@@ -304,18 +308,11 @@ public sealed class Pool<TPoolItem>
                 return false;
             }
 
-            allocated = IncrmentItemsAllocated(false);
+            ++itemsAllocated;
         }
 
-        item = PoolItem.Create(CreateItem(allocated));
+        item = PoolItem.Create(itemFactory.CreateItem());
         return true;
-    }
-
-    private TPoolItem CreateItem(int allocated)
-    {
-        metrics.RecordItemCreated();
-        metrics.RecordPoolUtilization(ActiveLeases, allocated);
-        return itemFactory.CreateItem();
     }
 
     private bool TryDequeue(out PoolItem item)
@@ -340,35 +337,15 @@ public sealed class Pool<TPoolItem>
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
     private void RemoveItem(TPoolItem item)
     {
-        metrics.RecordPoolUtilization(ActiveLeases, DecrementItemsAllocated());
+        lock (this)
+        {
+            --itemsAllocated;
+        }
+
         if (IsPoolItemDisposable)
         {
             (item as IDisposable)?.Dispose();
-            metrics.RecordItemDisposed();
         }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int DecrementItemsAllocated()
-    {
-        lock (this)
-        {
-            return --ItemsAllocated;
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int IncrmentItemsAllocated(bool withLock)
-    {
-        if (withLock)
-        {
-            lock (this)
-            {
-                return ++ItemsAllocated;
-            }
-        }
-
-        return ++ItemsAllocated;
     }
 
     private async ValueTask<TPoolItem> EnsurePreparedAsync(
@@ -397,9 +374,9 @@ public sealed class Pool<TPoolItem>
             metrics.RecordPreparationTime(timer.Elapsed);
             return item;
         }
-        catch
+        catch (Exception ex)
         {
-            metrics.RecordPreparationFailure();
+            metrics.RecordPreparationException(ex);
             throw;
         }
     }

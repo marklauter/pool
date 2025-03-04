@@ -1,128 +1,64 @@
+using Microsoft.Extensions.Logging;
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 
 namespace Pool.Metrics;
 
 /// <inheritdoc/>
+[SuppressMessage("Performance", "CA1848:Use the LoggerMessage delegates", Justification = "don't need performance in the exception handlers")]
 internal sealed class DefaultPoolMetrics
     : IPoolMetrics
     , IDisposable
 {
-    private readonly UpDownCounter<int> itemsAllocated;
-    private readonly UpDownCounter<int> itemsAvailable;
-    private readonly UpDownCounter<int> activeLeases;
-    private readonly UpDownCounter<int> queuedLeases;
-    private readonly Counter<ulong> preparationFailures;
-    private readonly Counter<ulong> leaseFailures;
-    private readonly Counter<ulong> itemsCreated;
-    private readonly Counter<ulong> itemsDisposed;
-    private readonly ObservableGauge<double> utilizationRate;
-    private readonly Histogram<double> leaseWaitTime;
-    private readonly Histogram<double> preparationTime;
+    private ObservableCounter<int>? itemsAllocatedCounter;
+    private ObservableCounter<int>? itemsAvailableCounter;
+    private ObservableCounter<int>? activeLeasesCounter;
+    private ObservableCounter<int>? queuedLeasesCounter;
+    private ObservableGauge<double>? utilizationRateGuage;
+    private readonly Counter<long> leaseExceptionCounter;
+    private readonly Counter<long> preparationExceptionCounter;
+    private readonly Histogram<double> leaseWaitTimeHistogram;
+    private readonly Histogram<double> preparationTimeHistogram;
     private readonly Meter meter;
+    private readonly ILogger<DefaultPoolMetrics> logger;
     private bool disposed;
 
-    public DefaultPoolMetrics(string name)
+    public DefaultPoolMetrics(
+        string name,
+        ILogger<DefaultPoolMetrics> logger)
     {
         meter = new Meter(name);
 
-        itemsAllocated = meter.CreateUpDownCounter<int>(
-            name: $"{name}.pool_items_allocated",
-            unit: "items",
-            description: "Number of items allocated");
+        leaseExceptionCounter = meter.CreateCounter<long>(
+            name: $"{name}.pool_lease_exception",
+            unit: "exceptions",
+            description: "Number of exceptions thrown during pool item lease");
 
-        itemsAvailable = meter.CreateUpDownCounter<int>(
-            name: $"{name}.pool_items_available",
-            unit: "items",
-            description: "Number of items available");
+        preparationExceptionCounter = meter.CreateCounter<long>(
+            name: $"{name}.pool_preparation_exception",
+            unit: "exceptions",
+            description: "Number of exceptions thrown during pool item preparation");
 
-        activeLeases = meter.CreateUpDownCounter<int>(
-            name: $"{name}.pool_active_leases",
-            unit: "leases",
-            description: "Number of active leases");
-
-        queuedLeases = meter.CreateUpDownCounter<int>(
-            name: $"{name}.pool_queued_leases",
-            unit: "leases",
-            description: "Number of queued leases");
-
-        leaseWaitTime = meter.CreateHistogram<double>(
+        leaseWaitTimeHistogram = meter.CreateHistogram<double>(
             name: $"{name}.pool_lease_wait_time",
             unit: "ms",
             description: "Time spent waiting for pool item lease");
 
-        preparationTime = meter.CreateHistogram<double>(
+        preparationTimeHistogram = meter.CreateHistogram<double>(
             name: $"{name}.pool_preparation_time",
             unit: "ms",
             description: "Time spent preparing pool items");
-
-        preparationFailures = meter.CreateCounter<ulong>(
-            name: $"{name}.pool_preparation_failures",
-            unit: "attempts",
-            description: "Number of preparation failures");
-
-        leaseFailures = meter.CreateCounter<ulong>(
-            name: $"{name}.pool_lease_failures",
-            unit: "attempts",
-            description: "Number of lease failures");
-
-        itemsCreated = meter.CreateCounter<ulong>(
-            name: $"{name}.pool_items_created",
-            unit: "items",
-            description: "Number of items created");
-
-        itemsDisposed = meter.CreateCounter<ulong>(
-            name: $"{name}.pool_items_disposed",
-            unit: "items",
-            description: "Number of items disposed");
-
-        utilizationRate = meter.CreateObservableGauge<double>(
-            name: $"{name}.pool_utilization_rate",
-            observeValue: CalculateUtilizationRate,
-            description: "Pool utilization rate (active/total)");
+        this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
-
-    private double CalculateUtilizationRate() =>
-        // Implement the logic to calculate the utilization rate
-        // This is just a placeholder implementation
-        0.0;
 
     /// <inheritdoc/>
     public void RecordLeaseWaitTime(TimeSpan duration) =>
-        ThrowIfDisposed().leaseWaitTime.Record(duration.TotalMilliseconds);
+        ThrowIfDisposed().leaseWaitTimeHistogram.Record(duration.TotalMilliseconds);
 
     /// <inheritdoc/>
     public void RecordPreparationTime(TimeSpan duration) =>
-        ThrowIfDisposed().preparationTime.Record(duration.TotalMilliseconds);
-
-    /// <inheritdoc/>
-    public void RecordLeaseFailure() =>
-        ThrowIfDisposed().leaseFailures.Add(1);
-
-    /// <inheritdoc/>
-    public void RecordPreparationFailure() =>
-        ThrowIfDisposed().preparationFailures.Add(1);
-
-    /// <inheritdoc/>
-    public void RecordItemCreated() =>
-        ThrowIfDisposed().itemsCreated.Add(1);
-
-    /// <inheritdoc/>
-    public void RecordItemDisposed() =>
-        ThrowIfDisposed().itemsDisposed.Add(1);
-
-    ///// <inheritdoc/>
-    //public void RecordPoolUtilization(int activeLeases, int totalItems)
-    //{
-    //    if (totalItems > 0)
-    //    {
-    //        ThrowIfDisposed().utilizationRate.Record((double)activeLeases / totalItems);
-    //    }
-    //}
-
-    /// <inheritdoc/>
-    public void RecordRelease() =>
-        ThrowIfDisposed().itemsDisposed.Add(1);
+        ThrowIfDisposed().preparationTimeHistogram.Record(duration.TotalMilliseconds);
 
     /// <inheritdoc/>
     public void Dispose()
@@ -141,5 +77,55 @@ internal sealed class DefaultPoolMetrics
     private DefaultPoolMetrics ThrowIfDisposed() => disposed
         ? throw new ObjectDisposedException(nameof(DefaultPoolMetrics))
         : this;
-    public void RecordPoolUtilization(int activeLeases, int totalItems) => throw new NotImplementedException();
+
+    /// <inheritdoc/>
+    public void RegisterItemsAllocatedObserver(Func<int> observeValue) =>
+        itemsAllocatedCounter = ThrowIfDisposed().meter.CreateObservableCounter(
+            name: $"{meter.Name}.pool_items_allocated",
+            observeValue: observeValue,
+            unit: "items",
+            description: "Number of items allocated");
+
+    /// <inheritdoc/>
+    public void RegisterItemsAvailableObserver(Func<int> observeValue) =>
+        itemsAvailableCounter = ThrowIfDisposed().meter.CreateObservableCounter(
+            name: $"{meter.Name}.pool_items_available",
+            observeValue: observeValue,
+            unit: "items",
+            description: "Number of items available");
+
+    /// <inheritdoc/>
+    public void RegisterActiveLeasesObserver(Func<int> observeValue) =>
+        activeLeasesCounter = ThrowIfDisposed().meter.CreateObservableCounter(
+            name: $"{meter.Name}.pool_active_leases",
+            observeValue: observeValue,
+            unit: "leases",
+            description: "Number of active leases");
+
+    /// <inheritdoc/>
+    public void RegisterQueuedLeasesObserver(Func<int> observeValue) =>
+        queuedLeasesCounter = ThrowIfDisposed().meter.CreateObservableCounter(
+            name: $"{meter.Name}.pool_queued_leases",
+            observeValue: observeValue,
+            unit: "leases",
+            description: "Number of queued leases");
+
+    /// <inheritdoc/>
+    public void RegisterUtilizationRateObserver(Func<double> observeValue) =>
+        utilizationRateGuage = ThrowIfDisposed().meter.CreateObservableGauge(
+            name: $"{meter.Name}.pool_utilization_rate",
+            observeValue: observeValue,
+            description: "Pool utilization rate (active/total)");
+
+    public void RecordLeaseException(Exception ex)
+    {
+        leaseExceptionCounter.Add(1);
+        logger.LogError(ex, "An exception occurred while leasing a pool item.");
+    }
+
+    public void RecordPreparationException(Exception ex)
+    {
+        preparationExceptionCounter.Add(1);
+        logger.LogError(ex, "An exception occurred while preparing a pool item.");
+    }
 }

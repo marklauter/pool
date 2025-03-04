@@ -4,7 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Pool.Tests;
 
-public sealed class PoolTests(IPool<IEcho> pool)
+public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 {
     [Fact]
     public void Pool_Is_Injected() => Assert.NotNull(pool);
@@ -128,7 +128,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
             IdleTimeout = TimeSpan.FromMilliseconds(0),
         };
 
-        using var pool = new Pool<IEcho>(new DefaultPoolMetrics(Pool<IEcho>.PoolName), new EchoFactory(), new EchoPreparationStrategy(), options);
+        using var pool = new Pool<IEcho>(metrics, new EchoFactory(), new EchoPreparationStrategy(), options);
 
         var instance = await pool.LeaseAsync(CancellationToken.None);
         await pool.ReleaseAsync(instance, CancellationToken.None);
@@ -148,7 +148,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
             UseDefaultFactory = false,
         };
 
-        using var pool = new Pool<IEcho>(new DefaultPoolMetrics(Pool<IEcho>.PoolName), new EchoFactory(), preparationStrategy, options);
+        using var pool = new Pool<IEcho>(metrics, new EchoFactory(), preparationStrategy, options);
 
         var instance = await pool.LeaseAsync(CancellationToken.None);
 
@@ -162,7 +162,7 @@ public sealed class PoolTests(IPool<IEcho> pool)
     public async Task Concurrent_Leases_Are_Handled()
     {
         using var pool = new Pool<IEcho>(
-            new DefaultPoolMetrics(Pool<IEcho>.PoolName),
+            metrics,
             new EchoFactory(),
             new EchoPreparationStrategy(), new PoolOptions
             {

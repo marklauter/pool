@@ -21,5 +21,6 @@ public sealed class Startup
 
     public void ConfigureServices(IServiceCollection services) => _ = services
         .AddTestPool<IEcho, EchoFactory, EchoPreparationStrategy>(configuration)
-        .AddDefaultPoolMetrics<IEcho>();
+        .AddDefaultPoolMetrics<IEcho>()
+        .AddLogging();
 }

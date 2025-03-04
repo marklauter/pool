@@ -6,7 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Pool.Tests;
 
-public sealed class PoolItemFactoryTests
+public sealed class PoolItemFactoryTests(IPoolMetrics metrics)
 {
     [Fact]
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP017:Prefer using", Justification = "required for test")]
@@ -18,7 +18,7 @@ public sealed class PoolItemFactoryTests
 
         var factory = new DefaultItemFactory<IEcho>(services);
         var pool = new Pool<IEcho>(
-            new DefaultPoolMetrics(Pool<IEcho>.PoolName),
+            metrics,
             factory,
             new DefaultPreparationStrategy<IEcho>(),
             new PoolOptions { MinSize = 5 });
