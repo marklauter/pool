@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pool.DefaultStrategies;
+using Pool.Metrics;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Pool;
@@ -84,6 +85,21 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         return services.AddSingleton<IItemFactory<TPoolItem>, TItemFactory>();
+    }
+
+    /// <summary>
+    /// AddDefaultPoolMetrics registers <see cref="IPoolMetrics"/> with the default implementation.
+    /// </summary>
+    /// <typeparam name="TPoolItem"></typeparam>
+    /// <param name="services"><see cref="IServiceCollection"/></param>
+    /// <returns><see cref="IServiceCollection"/></returns>
+    [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
+    [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
+    public static IServiceCollection AddDefaultPoolMetrics<TPoolItem>(this IServiceCollection services)
+        where TPoolItem : class
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.AddSingleton<IPoolMetrics>(new DefaultPoolMetrics(Pool<TPoolItem>.PoolName));
     }
 
     /// <summary>
