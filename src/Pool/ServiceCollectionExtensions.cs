@@ -20,9 +20,7 @@ public static class ServiceCollectionExtensions
     /// <param name="configuration"><see cref="IConfiguration"/></param>
     /// <param name="configure"><see cref="Action{T}"/> and <see cref="PoolOptions"/></param>
     /// <returns><see cref="IServiceCollection"/></returns>
-#if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
-#endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "<Pending>")]
     public static IServiceCollection AddPool<TPoolItem>(
@@ -43,7 +41,7 @@ public static class ServiceCollectionExtensions
 
         services
             .AddDefaultPreparationStrategy<TPoolItem>(options)
-            .AddDefaultFactory<TPoolItem>(options)
+            .AddDefaultItemFactory<TPoolItem>(options)
             .TryAddSingleton(options);
         services.TryAddSingleton<IPool<TPoolItem>, Pool<TPoolItem>>();
 
@@ -54,69 +52,61 @@ public static class ServiceCollectionExtensions
     /// AddPreparationStrategy registers a custom <see cref="IPreparationStrategy{TPoolItem}"/> implementation.
     /// </summary>
     /// <typeparam name="TPoolItem"></typeparam>
-    /// <typeparam name="TStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></typeparam>
+    /// <typeparam name="TPreparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></typeparam>
     /// <param name="services"><see cref="IServiceCollection"/></param>
     /// <returns><see cref="IServiceCollection"/></returns>
-#if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
-#endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddPreparationStrategy<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TStrategy>(
+    public static IServiceCollection AddPreparationStrategy<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPreparationStrategy>(
         this IServiceCollection services)
         where TPoolItem : class
-        where TStrategy : class, IPreparationStrategy<TPoolItem>
+        where TPreparationStrategy : class, IPreparationStrategy<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IPreparationStrategy<TPoolItem>, TStrategy>();
-        return services;
+        return services.AddSingleton<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
     }
 
     /// <summary>
     /// AddPoolItemFactory registers a custom <see cref="IItemFactory{TPoolItem}"/> implementation.
     /// </summary>
     /// <typeparam name="TPoolItem"></typeparam>
-    /// <typeparam name="TFactory"><see cref="IItemFactory{TPoolItem}"/></typeparam>
+    /// <typeparam name="TItemFactory"><see cref="IItemFactory{TPoolItem}"/></typeparam>
     /// <param name="services"><see cref="IServiceCollection"/></param>
     /// <returns><see cref="IServiceCollection"/></returns>
-#if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
-#endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    public static IServiceCollection AddPoolItemFactory<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactory>(
+    public static IServiceCollection AddPoolItemFactory<TPoolItem, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TItemFactory>(
         this IServiceCollection services)
         where TPoolItem : class
-        where TFactory : class, IItemFactory<TPoolItem>
+        where TItemFactory : class, IItemFactory<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IItemFactory<TPoolItem>, TFactory>();
-        return services;
+        return services.AddSingleton<IItemFactory<TPoolItem>, TItemFactory>();
     }
 
     /// <summary>
     /// AddTestPool is for unit testing only.
     /// </summary>
-#if NET7_0_OR_GREATER
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
-#endif
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "the case is handled in the conditional compile directives above")]
     internal static IServiceCollection AddTestPool<
         TPoolItem,
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TFactoryImplementation,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TItemFactory,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TPreparationStrategy>(
         this IServiceCollection services,
         IConfiguration configuration)
         where TPoolItem : class
-        where TFactoryImplementation : class, IItemFactory<TPoolItem>
+        where TItemFactory : class, IItemFactory<TPoolItem>
         where TPreparationStrategy : class, IPreparationStrategy<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.TryAddSingleton(configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>() ?? new PoolOptions());
-        services.TryAddTransient<IItemFactory<TPoolItem>, TFactoryImplementation>();
+        services.TryAddTransient<IItemFactory<TPoolItem>, TItemFactory>();
         services.TryAddTransient<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
         services.TryAddTransient<IPool<TPoolItem>, Pool<TPoolItem>>();
 
@@ -134,7 +124,7 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    private static IServiceCollection AddDefaultFactory<TPoolItem>(this IServiceCollection services, PoolOptions options)
+    private static IServiceCollection AddDefaultItemFactory<TPoolItem>(this IServiceCollection services, PoolOptions options)
         where TPoolItem : class
     {
         if (options.UseDefaultFactory)
