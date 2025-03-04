@@ -9,7 +9,7 @@
 
 # Pool
 `IPool<TPoolItem>` is an object pool that uses the lease/release pattern.
-It allows for but does not require, [preparation strategies](##pool-item-preparation-strategy).
+It allows for, but does not require, [custom preparation strategies](##pool-item-preparation-strategy).
 Common use cases for [preparation strategies](##pool-item-preparation-strategy) 
 include objects that benefit from long-lived connections, 
 like SMTP or database connections.
@@ -34,7 +34,7 @@ However, if the item queue is empty, the pool attempts to create a new item to f
 If the pool has reached its allocation limit, it enqueues a new lease request object into the lease request queue.
 Then it returns the least request's `TaskCompletionSource.Task` to the caller.
 
-The caller will block on await until timing out, or until an item is released back to the pool. 
+The caller will block on await until an item is released back to the pool or until the lease request times out. 
 First, the release operation attempts to dequeue an active lease request.
 If a lease request is returned, the least request's task is completed with the item being released by the caller.
 But if the lease request queue is empty, the item will be placed in the available item queue.
