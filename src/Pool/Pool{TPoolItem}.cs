@@ -207,9 +207,9 @@ public sealed class Pool<TPoolItem>
     /// <inheritdoc/>
     public async ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
-        var timer = Stopwatch.StartNew();
         try
         {
+            var timer = Stopwatch.StartNew();
             if (ThrowIfDisposed().TryAcquireItem(out var item))
             {
                 metrics.RecordLeaseWaitTime(timer.Elapsed);
@@ -239,6 +239,8 @@ public sealed class Pool<TPoolItem>
         TPoolItem item,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(item);
+
         if (ThrowIfDisposed().leaseRequests.IsEmpty)
         {
             // no active lease requests, so return the item to the pool
@@ -286,10 +288,13 @@ public sealed class Pool<TPoolItem>
             itemsAllocated = count;
         }
 
+        var items = new TPoolItem[count];
         for (var i = 0; i < count; i++)
         {
-            yield return itemFactory.CreateItem();
+            items[i] = itemFactory.CreateItem();
         }
+
+        return items;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -301,7 +306,7 @@ public sealed class Pool<TPoolItem>
         bool canCreate;
         lock (this)
         {
-            canCreate = ItemsAllocated < maxSize;
+            canCreate = itemsAllocated < maxSize;
             if (!canCreate)
             {
                 item = default;
@@ -357,9 +362,9 @@ public sealed class Pool<TPoolItem>
             return item;
         }
 
-        var timer = Stopwatch.StartNew();
         try
         {
+            var timer = Stopwatch.StartNew();
             using var timeoutCts = new CancellationTokenSource(preparationTimeout);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
             cancellationToken = linkedCts.Token;
