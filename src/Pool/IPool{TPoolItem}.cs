@@ -35,6 +35,11 @@ public interface IPool<TPoolItem>
     ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Returns the name of the pool in the form $"{TPoolItem.GetType().Name}.Pool"
+    /// </summary>
+    string Name { get; }
+
+    /// <summary>
     /// returns an item to the pool
     /// </summary>
     /// <param name="item"></param>
