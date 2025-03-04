@@ -15,7 +15,7 @@ internal sealed class DefaultPoolMetrics
     private ObservableCounter<int>? itemsAvailableCounter;
     private ObservableCounter<int>? activeLeasesCounter;
     private ObservableCounter<int>? queuedLeasesCounter;
-    private ObservableGauge<double>? utilizationRateGuage;
+    private ObservableGauge<double>? utilizationRateGauge;
     private readonly Counter<long> leaseExceptionCounter;
     private readonly Counter<long> preparationExceptionCounter;
     private readonly Histogram<double> leaseWaitTimeHistogram;
@@ -112,17 +112,19 @@ internal sealed class DefaultPoolMetrics
 
     /// <inheritdoc/>
     public void RegisterUtilizationRateObserver(Func<double> observeValue) =>
-        utilizationRateGuage = ThrowIfDisposed().meter.CreateObservableGauge(
+        utilizationRateGauge = ThrowIfDisposed().meter.CreateObservableGauge(
             name: $"{meter.Name}.pool_utilization_rate",
             observeValue: observeValue,
             description: "Pool utilization rate (active/total)");
 
+    /// <inheritdoc/>
     public void RecordLeaseException(Exception ex)
     {
         leaseExceptionCounter.Add(1);
         logger.LogError(ex, "An exception occurred while leasing a pool item.");
     }
 
+    /// <inheritdoc/>
     public void RecordPreparationException(Exception ex)
     {
         preparationExceptionCounter.Add(1);
