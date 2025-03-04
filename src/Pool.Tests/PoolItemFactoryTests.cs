@@ -1,13 +1,15 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Pool.DefaultStrategies;
+using Pool.Metrics;
 using Pool.Tests.Fakes;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Pool.Tests;
 
 public sealed class PoolItemFactoryTests
 {
     [Fact]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP017:Prefer using", Justification = "required for test")]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP017:Prefer using", Justification = "required for test")]
     public async Task PoolItemFactory_Doesnt_Crash_On_Dispose()
     {
         using var services = new ServiceCollection()
@@ -16,6 +18,7 @@ public sealed class PoolItemFactoryTests
 
         var factory = new DefaultItemFactory<IEcho>(services);
         var pool = new Pool<IEcho>(
+            new DefaultPoolMetrics(Pool<IEcho>.PoolName),
             factory,
             new DefaultPreparationStrategy<IEcho>(),
             new PoolOptions { MinSize = 5 });
