@@ -9,7 +9,6 @@ namespace Pool.Metrics;
 [SuppressMessage("Performance", "CA1848:Use the LoggerMessage delegates", Justification = "don't need performance in the exception handlers")]
 internal sealed class DefaultPoolMetrics
     : IPoolMetrics
-    , IDisposable
 {
     private ObservableCounter<int>? itemsAllocatedCounter;
     private ObservableCounter<int>? itemsAvailableCounter;

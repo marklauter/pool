@@ -5,6 +5,7 @@ namespace Pool.Metrics;
 /// such as OpenTelemetry, Prometheus, or logging frameworks.
 /// </summary>
 public interface IPoolMetrics
+    : IDisposable
 {
     /// <summary>
     /// Records an exception that occurred while leasing a pool item.
