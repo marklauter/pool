@@ -281,7 +281,7 @@ public sealed class Pool<TPoolItem>
             .Select(item => ReleaseAsync(item, cancellationToken)));
     }
 
-    private IEnumerable<TPoolItem> CreateItems(int count)
+    private TPoolItem[] CreateItems(int count)
     {
         lock (this)
         {

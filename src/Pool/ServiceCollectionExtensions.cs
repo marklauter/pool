@@ -44,6 +44,7 @@ public static class ServiceCollectionExtensions
         services
             .AddDefaultPreparationStrategy<TPoolItem>(options)
             .AddDefaultItemFactory<TPoolItem>(options)
+            .AddDefaultPoolMetrics<TPoolItem>()
             .TryAddSingleton(options);
         services.TryAddSingleton<IPool<TPoolItem>, Pool<TPoolItem>>();
 
@@ -100,8 +101,9 @@ public static class ServiceCollectionExtensions
         where TPoolItem : class
     {
         ArgumentNullException.ThrowIfNull(services);
-        return services.AddSingleton<IPoolMetrics>((services) =>
+        services.TryAddSingleton<IPoolMetrics>((services) =>
             new DefaultPoolMetrics(Pool<TPoolItem>.PoolName, services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
+        return services;
     }
 
     /// <summary>
@@ -127,8 +129,7 @@ public static class ServiceCollectionExtensions
         services.TryAddTransient<IItemFactory<TPoolItem>, TItemFactory>();
         services.TryAddTransient<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
         services.TryAddTransient<IPool<TPoolItem>, Pool<TPoolItem>>();
-
-        return services;
+        return services.AddDefaultPoolMetrics<TPoolItem>();
     }
 
     private static IServiceCollection AddDefaultPreparationStrategy<TPoolItem>(this IServiceCollection services, PoolOptions options)
