@@ -241,14 +241,7 @@ public sealed class Pool<TPoolItem>
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        if (ThrowIfDisposed().leaseRequests.IsEmpty)
-        {
-            // no active lease requests, so return the item to the pool
-            pool.Enqueue(PoolItem.Create(item));
-            return;
-        }
-
-        item = await EnsurePreparedAsync(item, cancellationToken);
+        var isPrepared = false;
         while (leaseRequests.TryDequeue(out var leaseRequest))
         {
             // Tries to set the task result and return, which unblocks the caller awaiting the lease request.
@@ -257,9 +250,21 @@ public sealed class Pool<TPoolItem>
             // and the caller already knows about the cancelation,
             // so we can safely ignore the lease request.
             // This effectively purges dead requests from the queue.
-            if (leaseRequest.TrySetResult(item))
+            if (!leaseRequest.Task.IsCompleted
+                && !leaseRequest.Task.IsCompletedSuccessfully
+                && !leaseRequest.Task.IsCanceled
+                && !leaseRequest.Task.IsFaulted)
             {
-                return;
+                if (!isPrepared)
+                {
+                    item = await EnsurePreparedAsync(item, cancellationToken);
+                    isPrepared = true;
+                }
+
+                if (leaseRequest.TrySetResult(item))
+                {
+                    return;
+                }
             }
         }
 
