@@ -26,6 +26,9 @@ public sealed class Pool<TPoolItem>
         private readonly CancellationTokenRegistration? cancellationTokenRegistration;
         private bool disposed;
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool IsUsable() => !Task.IsCompleted && !Task.IsCompletedSuccessfully;
+
         public LeaseRequest(TimeSpan timeout, CancellationToken cancellationToken)
         {
             // when timeout is infinite and cancellation token is none, don't register any callbacks
@@ -251,8 +254,7 @@ public sealed class Pool<TPoolItem>
             // and the caller already knows about the cancelation,
             // so we can safely ignore the lease request.
             // This effectively purges dead requests from the queue.
-            if (!leaseRequest.Task.IsCompleted
-                && !leaseRequest.Task.IsCompletedSuccessfully)
+            if (leaseRequest.IsUsable())
             {
                 if (!isPrepared)
                 {
