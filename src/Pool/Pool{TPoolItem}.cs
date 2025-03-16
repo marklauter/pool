@@ -27,7 +27,7 @@ public sealed class Pool<TPoolItem>
         private bool disposed;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsUsable() => !Task.IsCompleted && !Task.IsCompletedSuccessfully;
+        public bool IsNotExpired() => !Task.IsCompleted && !Task.IsCompletedSuccessfully;
 
         public LeaseRequest(TimeSpan timeout, CancellationToken cancellationToken)
         {
@@ -254,7 +254,7 @@ public sealed class Pool<TPoolItem>
             // and the caller already knows about the cancelation,
             // so we can safely ignore the lease request.
             // This effectively purges dead requests from the queue.
-            if (leaseRequest.IsUsable())
+            if (leaseRequest.IsNotExpired())
             {
                 if (!isPrepared)
                 {
@@ -269,7 +269,7 @@ public sealed class Pool<TPoolItem>
             }
         }
 
-        // no valid lease requests, so return the item to the pool
+        // there are no valid lease requests, so return the item to the pool
         pool.Enqueue(PoolItem.Create(item));
     }
 
