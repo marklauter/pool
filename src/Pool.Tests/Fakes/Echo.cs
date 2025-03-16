@@ -31,17 +31,5 @@ internal sealed class Echo
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void ThrowIfDisposed()
-    {
-#if NET7_0_OR_GREATER
-#pragma warning disable IDE0022 // Use expression body for method
-        ObjectDisposedException.ThrowIf(disposed, nameof(Echo));
-#pragma warning restore IDE0022 // Use expression body for method
-#elif NET6_0_OR_GREATER                                                      
-        if (disposed)
-        {
-            throw new ObjectDisposedException(nameof(Echo));
-        }
-#endif
-    }
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, nameof(Echo));
 }

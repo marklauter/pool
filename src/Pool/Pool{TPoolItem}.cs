@@ -211,7 +211,7 @@ public sealed class Pool<TPoolItem>
         try
         {
             var timer = Stopwatch.StartNew();
-            if (ThrowIfDisposed().TryAcquireItem(out var item))
+            if (IsNotDisposed().TryAcquireItem(out var item))
             {
                 metrics.RecordLeaseWaitTime(timer.Elapsed);
                 return await EnsurePreparedAsync(item.Item, cancellationToken);
@@ -278,7 +278,7 @@ public sealed class Pool<TPoolItem>
     /// <inheritdoc/>
     public async Task ClearAsync(CancellationToken cancellationToken)
     {
-        ThrowIfDisposed().EnsureItemsDisposed();
+        IsNotDisposed().EnsureItemsDisposed();
 
         await Task.WhenAll(
             CreateItems(QueuedLeases > initialSize ? QueuedLeases : initialSize)
@@ -402,7 +402,7 @@ public sealed class Pool<TPoolItem>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private Pool<TPoolItem> ThrowIfDisposed() => disposed
+    private Pool<TPoolItem> IsNotDisposed() => disposed
         ? throw new ObjectDisposedException(nameof(Pool<TPoolItem>))
         : this;
 

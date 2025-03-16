@@ -53,11 +53,11 @@ internal sealed class DefaultPoolMetrics
 
     /// <inheritdoc/>
     public void RecordLeaseWaitTime(TimeSpan duration) =>
-        ThrowIfDisposed().leaseWaitTimeHistogram.Record(duration.TotalMilliseconds);
+        IsNotDisposed().leaseWaitTimeHistogram.Record(duration.TotalMilliseconds);
 
     /// <inheritdoc/>
     public void RecordPreparationTime(TimeSpan duration) =>
-        ThrowIfDisposed().preparationTimeHistogram.Record(duration.TotalMilliseconds);
+        IsNotDisposed().preparationTimeHistogram.Record(duration.TotalMilliseconds);
 
     /// <inheritdoc/>
     public void Dispose()
@@ -73,13 +73,13 @@ internal sealed class DefaultPoolMetrics
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private DefaultPoolMetrics ThrowIfDisposed() => disposed
+    private DefaultPoolMetrics IsNotDisposed() => disposed
         ? throw new ObjectDisposedException(nameof(DefaultPoolMetrics))
         : this;
 
     /// <inheritdoc/>
     public void RegisterItemsAllocatedObserver(Func<int> observeValue) =>
-        itemsAllocatedCounter = ThrowIfDisposed().meter.CreateObservableCounter(
+        itemsAllocatedCounter = IsNotDisposed().meter.CreateObservableCounter(
             name: $"{meter.Name}.pool_items_allocated",
             observeValue: observeValue,
             unit: "items",
@@ -87,7 +87,7 @@ internal sealed class DefaultPoolMetrics
 
     /// <inheritdoc/>
     public void RegisterItemsAvailableObserver(Func<int> observeValue) =>
-        itemsAvailableCounter = ThrowIfDisposed().meter.CreateObservableCounter(
+        itemsAvailableCounter = IsNotDisposed().meter.CreateObservableCounter(
             name: $"{meter.Name}.pool_items_available",
             observeValue: observeValue,
             unit: "items",
@@ -95,7 +95,7 @@ internal sealed class DefaultPoolMetrics
 
     /// <inheritdoc/>
     public void RegisterActiveLeasesObserver(Func<int> observeValue) =>
-        activeLeasesCounter = ThrowIfDisposed().meter.CreateObservableCounter(
+        activeLeasesCounter = IsNotDisposed().meter.CreateObservableCounter(
             name: $"{meter.Name}.pool_active_leases",
             observeValue: observeValue,
             unit: "leases",
@@ -103,7 +103,7 @@ internal sealed class DefaultPoolMetrics
 
     /// <inheritdoc/>
     public void RegisterQueuedLeasesObserver(Func<int> observeValue) =>
-        queuedLeasesCounter = ThrowIfDisposed().meter.CreateObservableCounter(
+        queuedLeasesCounter = IsNotDisposed().meter.CreateObservableCounter(
             name: $"{meter.Name}.pool_queued_leases",
             observeValue: observeValue,
             unit: "leases",
@@ -111,7 +111,7 @@ internal sealed class DefaultPoolMetrics
 
     /// <inheritdoc/>
     public void RegisterUtilizationRateObserver(Func<double> observeValue) =>
-        utilizationRateGauge = ThrowIfDisposed().meter.CreateObservableGauge(
+        utilizationRateGauge = IsNotDisposed().meter.CreateObservableGauge(
             name: $"{meter.Name}.pool_utilization_rate",
             observeValue: observeValue,
             description: "Pool utilization rate (active/total)");
