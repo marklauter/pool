@@ -125,7 +125,7 @@ public static class NamedPoolServiceCollectionExtensions
         return services;
     }
 
-    private static string ServiceKey<TPoolItem>(string name)
+    public static string ServiceKey<TPoolItem>(string name)
         where TPoolItem : class
         => $"{name}.{typeof(TPoolItem).Name}.pool";
 
