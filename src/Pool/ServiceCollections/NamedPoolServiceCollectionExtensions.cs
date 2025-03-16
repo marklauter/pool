@@ -9,7 +9,6 @@ using System.Diagnostics.Metrics;
 
 #pragma warning disable IDE0130 // Namespace does not match folder structure
 namespace Pool;
-#pragma warning restore IDE0130 // Namespace does not match folder structure
 
 /// <summary>
 /// Extension methods for setting up named pools in an <see cref="IServiceCollection"/>.
@@ -63,7 +62,7 @@ public static class NamedPoolServiceCollectionExtensions
             .TryAddTransient(serviceProvider =>
             {
                 var poolFactory = serviceProvider.GetRequiredService<IPoolFactory<TPoolItem>>();
-                var serviceKey = CreateServiceKey<TPoolItem>(name);
+                var serviceKey = (ServiceKey<TPoolItem>)name;
                 var pool = poolFactory.CreatePool(serviceKey);
                 var client = ActivatorUtilities.CreateInstance<TClient>(serviceProvider, pool);
                 configureClient?.Invoke(client);
@@ -96,8 +95,7 @@ public static class NamedPoolServiceCollectionExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(name, nameof(name));
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var serviceKey = CreateServiceKey<TPoolItem>(name);
-
+        var serviceKey = (ServiceKey<TPoolItem>)name;
         var options = configuration.GetSection($"{serviceKey}_{nameof(PoolOptions)}").Get<PoolOptions>()
             ?? configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>()
             ?? new PoolOptions();
@@ -126,16 +124,6 @@ public static class NamedPoolServiceCollectionExtensions
 
         return services;
     }
-
-    /// <summary>
-    /// Creates a service key for the given name.
-    /// </summary>
-    /// <typeparam name="TPoolItem">The type of item contained by the pool.</typeparam>
-    /// <param name="name">The name used to identity a named pool.</param>
-    /// <returns>A service key.</returns>
-    public static string CreateServiceKey<TPoolItem>(string name)
-        where TPoolItem : class
-        => $"{name}.{typeof(TPoolItem).Name}.pool";
 
     private static IServiceCollection AddDefaultPreparationStrategy<TPoolItem>(
         this IServiceCollection services,
@@ -182,8 +170,7 @@ public static class NamedPoolServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(name, nameof(name));
 
-        var serviceKey = CreateServiceKey<TPoolItem>(name);
-
+        var serviceKey = (ServiceKey<TPoolItem>)name;
         services
             .AddMetrics()
             .TryAddKeyedSingleton<IPoolMetrics>(serviceKey,
