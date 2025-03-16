@@ -18,7 +18,6 @@ namespace Pool.Metrics;
 /// For more information about dotnet metrics, see https://learn.microsoft.com/en-us/dotnet/core/diagnostics/metrics-instrumentation
 /// </remarks>
 public interface IPoolMetrics
-    : IDisposable
 {
     /// <summary>
     /// Records an exception that occurred while leasing a pool item.
