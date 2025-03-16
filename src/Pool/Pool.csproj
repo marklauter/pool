@@ -27,18 +27,6 @@
 		<PackageIcon>pool.png</PackageIcon>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-		<IsTrimmable>True</IsTrimmable>
-		<IsAotCompatible>True</IsAotCompatible>
-		<WarningLevel>9999</WarningLevel>
-	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-		<IsTrimmable>True</IsTrimmable>
-		<IsAotCompatible>True</IsAotCompatible>
-		<WarningLevel>9999</WarningLevel>
-	</PropertyGroup>
-
 	<ItemGroup>
 		<PackageReference Include="IDisposableAnalyzers" Version="4.0.8">
 			<PrivateAssets>all</PrivateAssets>
