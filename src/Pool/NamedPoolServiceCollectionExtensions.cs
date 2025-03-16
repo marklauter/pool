@@ -176,7 +176,7 @@ public static class NamedPoolServiceCollectionExtensions
         var serviceKey = ServiceKey<TPoolItem>(name);
 
         services.TryAddKeyedSingleton<IPoolMetrics>(serviceKey,
-            (services, serviceKey) => new DefaultPoolMetrics(Pool<TPoolItem>.PoolName, services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
+            (services, serviceKey) => new DefaultPoolMetrics($"{name}.{Pool<TPoolItem>.PoolName}", services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
         return services;
     }
 }
