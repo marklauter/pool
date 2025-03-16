@@ -284,6 +284,44 @@ services.AddPool<MyPoolItem>(configuration, options =>
 .AddSingleton<IPoolMetrics, MyCustomPoolMetrics>();
 ```
 
+### Using Metrics with Named Pools
+
+When working with named pools, each pool instance will have its own set of metrics with the name pattern `{poolName}.{poolItemType.Name}.Pool`. To collect metrics from named pools, you'll need to ensure you're adding the correct meter name to your metrics system.
+
+Example of configuring OpenTelemetry to collect metrics from a named pool:
+
+```csharp
+// First, register your named pools
+
+services.AddNamedPool<DatabaseConnection>(
+    "ReadOnly",
+    configuration,
+    options => 
+    {
+        options.MinSize = 5;
+        options.MaxSize = 20;
+    });
+
+services.AddNamedPool<DatabaseConnection>(
+    "ReadWrite",
+    configuration,
+    options => 
+    {
+        options.MinSize = 2;
+        options.MaxSize = 10;
+    });
+
+services.AddOpenTelemetry()
+    .WithMetrics(builder => builder
+        // Add meters for the named pools
+        .AddMeter($"ReadOnly.{Pool<DatabaseConnection>.PoolName}")
+        .AddMeter($"ReadWrite.{Pool<DatabaseConnection>.PoolName}")
+        // Configure exporters as needed
+        .AddPrometheusExporter());
+```
+
+With this configuration, your metrics system will collect separate metrics for each named pool, allowing you to monitor and analyze the performance of individual pools independently.
+
 Pool metrics can help you answer important questions about your pool's performance and health:
 - Is the pool sized appropriately for my workload?
 - Are items taking too long to prepare?
