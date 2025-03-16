@@ -18,13 +18,13 @@ internal sealed class PoolFactory<TPoolItem>(IServiceProvider serviceProvider) :
     private readonly ConcurrentDictionary<string, IPool<TPoolItem>> pools = new();
 
     /// <inheritdoc/>
-    public IPool<TPoolItem> CreatePool(string name)
+    public IPool<TPoolItem> CreatePool(string serviceKey)
     {
-        ArgumentException.ThrowIfNullOrEmpty(name, nameof(name));
-        return pools.GetOrAdd(name, CreatePoolInstance);
+        ArgumentException.ThrowIfNullOrEmpty(serviceKey, nameof(serviceKey));
+        return pools.GetOrAdd(serviceKey, CreatePoolInstance);
     }
 
-    private IPool<TPoolItem> CreatePoolInstance(string name) =>
-        serviceProvider.GetRequiredKeyedService<IPool<TPoolItem>>(name)
-            ?? throw new InvalidOperationException($"No pool named '{name}' of type '{typeof(TPoolItem).Name}' has been registered.");
+    private IPool<TPoolItem> CreatePoolInstance(string serviceKey) =>
+        serviceProvider.GetRequiredKeyedService<IPool<TPoolItem>>(serviceKey)
+            ?? throw new InvalidOperationException($"No pool named '{serviceKey}' of type '{typeof(TPoolItem).Name}' has been registered.");
 }

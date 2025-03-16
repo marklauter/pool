@@ -11,8 +11,8 @@ public interface IPoolFactory<TPoolItem>
     /// <summary>
     /// Creates an instance of <see cref="IPool{TPoolItem}"/> with the specified name.
     /// </summary>
-    /// <param name="name">The name of the pool to create.</param>
+    /// <param name="serviceKey">The name of the pool to create.</param>
     /// <returns>An instance of <see cref="IPool{TPoolItem}"/> that was registered with the specified name.</returns>
     /// <exception cref="ArgumentException">Thrown when no pool with the specified name has been registered.</exception>
-    IPool<TPoolItem> CreatePool(string name);
+    IPool<TPoolItem> CreatePool(string serviceKey);
 }
