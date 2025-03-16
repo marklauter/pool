@@ -251,7 +251,8 @@ public sealed class Pool<TPoolItem>
             // and the caller already knows about the cancelation,
             // so we can safely ignore the lease request.
             // This effectively purges dead requests from the queue.
-            if (!leaseRequest.Task.IsCompletedSuccessfully)
+            if (!leaseRequest.Task.IsCompleted
+                && !leaseRequest.Task.IsCompletedSuccessfully)
             {
                 if (!isPrepared)
                 {
