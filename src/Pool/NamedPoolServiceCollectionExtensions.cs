@@ -106,7 +106,7 @@ public static class NamedPoolServiceCollectionExtensions
             .AddKeyedSingleton(serviceKey, options)
             .AddDefaultPreparationStrategy<TPoolItem>(options, serviceKey)
             .AddDefaultItemFactory<TPoolItem>(options, serviceKey)
-            .AddDefaultPoolMetrics<TPoolItem>(serviceKey)
+            .AddDefaultPoolMetrics<TPoolItem>(name)
             .AddKeyedSingleton<IPool<TPoolItem>>(serviceKey, (services, serviceKey) =>
             {
                 var options = services.GetRequiredKeyedService<PoolOptions>(serviceKey);
@@ -173,7 +173,7 @@ public static class NamedPoolServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(name, nameof(name));
 
-        var serviceKey = $"{name}.{typeof(TPoolItem).Name}.pool";
+        var serviceKey = ServiceKey<TPoolItem>(name);
 
         services.TryAddKeyedSingleton<IPoolMetrics>(serviceKey,
             (services, serviceKey) => new DefaultPoolMetrics(Pool<TPoolItem>.PoolName, services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
