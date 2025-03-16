@@ -77,7 +77,7 @@ public static class NamedPoolServiceCollectionExtensions
     /// <param name="services">The <see cref="IServiceCollection"/> to add services to.</param>
     /// <param name="name">The name of the pool.</param>
     /// <param name="configuration">The <see cref="IConfiguration"/> to bind options from.</param>
-    /// <param name="configure">The action to configure the <see cref="PoolOptions"/>.</param>
+    /// <param name="configureOptions">The action to configure the <see cref="PoolOptions"/>.</param>
     /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
@@ -86,7 +86,7 @@ public static class NamedPoolServiceCollectionExtensions
         this IServiceCollection services,
         string name,
         IConfiguration configuration,
-        Action<PoolOptions>? configure = null)
+        Action<PoolOptions>? configureOptions = null)
         where TPoolItem : class
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -99,7 +99,7 @@ public static class NamedPoolServiceCollectionExtensions
             ?? configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>()
             ?? new PoolOptions();
 
-        configure?.Invoke(options);
+        configureOptions?.Invoke(options);
 
         _ = services
             .AddPoolFactory<TPoolItem>()

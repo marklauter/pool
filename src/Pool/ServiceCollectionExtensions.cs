@@ -20,7 +20,7 @@ public static class ServiceCollectionExtensions
     /// <typeparam name="TPoolItem">The type of item contained by the pool.</typeparam>
     /// <param name="services"><see cref="IServiceCollection"/></param>
     /// <param name="configuration"><see cref="IConfiguration"/></param>
-    /// <param name="configure"><see cref="Action{T}"/> and <see cref="PoolOptions"/></param>
+    /// <param name="configureOptions"><see cref="Action{T}"/> and <see cref="PoolOptions"/></param>
     /// <returns><see cref="IServiceCollection"/></returns>
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
@@ -28,7 +28,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddPool<TPoolItem>(
         this IServiceCollection services,
         IConfiguration configuration,
-        Action<PoolOptions>? configure = null)
+        Action<PoolOptions>? configureOptions = null)
         where TPoolItem : class
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -39,7 +39,7 @@ public static class ServiceCollectionExtensions
             .Get<PoolOptions>()
             ?? new PoolOptions();
 
-        configure?.Invoke(options);
+        configureOptions?.Invoke(options);
 
         services
             .AddDefaultPreparationStrategy<TPoolItem>(options)
