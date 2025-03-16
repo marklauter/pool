@@ -3,7 +3,20 @@ namespace Pool.Metrics;
 /// <summary>
 /// Interface for recording pool metrics. Implementations can forward metrics to various monitoring systems
 /// such as OpenTelemetry, Prometheus, or logging frameworks.
+/// Metric names are prefixed with the name of the pool <see cref="Pool{TPoolItem}.Name"/>
+/// Counter: {name}.lease_exception
+/// Counter: {name}.preparation_exception
+/// Histogram: {name}.lease_wait_time
+/// Histogram: {name}.item_preparation_time
+/// Observable Up/Down Counter: {name}.items_allocated
+/// Observable Up/Down Counter: {name}.items_available
+/// Observable Up/Down Counter: {name}.active_leases
+/// Observable Up/Down Counter: {name}.queued_leases
+/// Observable Guage: {name}.utilization_rate
 /// </summary>
+/// <remarks>
+/// For more information about dotnet metrics, see https://learn.microsoft.com/en-us/dotnet/core/diagnostics/metrics-instrumentation
+/// </remarks>
 public interface IPoolMetrics
     : IDisposable
 {

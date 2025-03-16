@@ -10,10 +10,10 @@ namespace Pool.Metrics;
 internal sealed class DefaultPoolMetrics
     : IPoolMetrics
 {
-    private ObservableCounter<int>? itemsAllocatedCounter;
-    private ObservableCounter<int>? itemsAvailableCounter;
-    private ObservableCounter<int>? activeLeasesCounter;
-    private ObservableCounter<int>? queuedLeasesCounter;
+    private ObservableUpDownCounter<int>? itemsAllocatedCounter;
+    private ObservableUpDownCounter<int>? itemsAvailableCounter;
+    private ObservableUpDownCounter<int>? activeLeasesCounter;
+    private ObservableUpDownCounter<int>? queuedLeasesCounter;
     private ObservableGauge<double>? utilizationRateGauge;
     private readonly Counter<long> leaseExceptionCounter;
     private readonly Counter<long> preparationExceptionCounter;
@@ -30,22 +30,22 @@ internal sealed class DefaultPoolMetrics
         meter = new Meter(name);
 
         leaseExceptionCounter = meter.CreateCounter<long>(
-            name: $"{name}.pool_lease_exception",
+            name: $"{name}.lease_exception",
             unit: "exceptions",
             description: "Number of exceptions thrown during pool item lease");
 
         preparationExceptionCounter = meter.CreateCounter<long>(
-            name: $"{name}.pool_preparation_exception",
+            name: $"{name}.preparation_exception",
             unit: "exceptions",
             description: "Number of exceptions thrown during pool item preparation");
 
         leaseWaitTimeHistogram = meter.CreateHistogram<double>(
-            name: $"{name}.pool_lease_wait_time",
+            name: $"{name}.lease_wait_time",
             unit: "ms",
-            description: "Time spent waiting for pool item lease");
+            description: "Time spent waiting for item lease");
 
         preparationTimeHistogram = meter.CreateHistogram<double>(
-            name: $"{name}.pool_preparation_time",
+            name: $"{name}.item_preparation_time",
             unit: "ms",
             description: "Time spent preparing pool items");
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -79,32 +79,32 @@ internal sealed class DefaultPoolMetrics
 
     /// <inheritdoc/>
     public void RegisterItemsAllocatedObserver(Func<int> observeValue) =>
-        itemsAllocatedCounter = IsNotDisposed().meter.CreateObservableCounter(
-            name: $"{meter.Name}.pool_items_allocated",
+        itemsAllocatedCounter = IsNotDisposed().meter.CreateObservableUpDownCounter(
+            name: $"{meter.Name}.items_allocated",
             observeValue: observeValue,
             unit: "items",
-            description: "Number of items allocated");
+            description: "Number of items currently allocated");
 
     /// <inheritdoc/>
     public void RegisterItemsAvailableObserver(Func<int> observeValue) =>
-        itemsAvailableCounter = IsNotDisposed().meter.CreateObservableCounter(
-            name: $"{meter.Name}.pool_items_available",
+        itemsAvailableCounter = IsNotDisposed().meter.CreateObservableUpDownCounter(
+            name: $"{meter.Name}.items_available",
             observeValue: observeValue,
             unit: "items",
-            description: "Number of items available");
+            description: "Number of items currently available");
 
     /// <inheritdoc/>
     public void RegisterActiveLeasesObserver(Func<int> observeValue) =>
-        activeLeasesCounter = IsNotDisposed().meter.CreateObservableCounter(
-            name: $"{meter.Name}.pool_active_leases",
+        activeLeasesCounter = IsNotDisposed().meter.CreateObservableUpDownCounter(
+            name: $"{meter.Name}.active_leases",
             observeValue: observeValue,
             unit: "leases",
             description: "Number of active leases");
 
     /// <inheritdoc/>
     public void RegisterQueuedLeasesObserver(Func<int> observeValue) =>
-        queuedLeasesCounter = IsNotDisposed().meter.CreateObservableCounter(
-            name: $"{meter.Name}.pool_queued_leases",
+        queuedLeasesCounter = IsNotDisposed().meter.CreateObservableUpDownCounter(
+            name: $"{meter.Name}.queued_leases",
             observeValue: observeValue,
             unit: "leases",
             description: "Number of queued leases");
@@ -112,7 +112,7 @@ internal sealed class DefaultPoolMetrics
     /// <inheritdoc/>
     public void RegisterUtilizationRateObserver(Func<double> observeValue) =>
         utilizationRateGauge = IsNotDisposed().meter.CreateObservableGauge(
-            name: $"{meter.Name}.pool_utilization_rate",
+            name: $"{meter.Name}.utilization_rate",
             observeValue: observeValue,
             description: "Pool utilization rate (active/total)");
 
