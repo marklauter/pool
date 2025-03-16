@@ -9,8 +9,8 @@
 
 # Pool
 `IPool<TPoolItem>` is an object pool that uses the lease/release pattern.
-It allows for, but does not require, [custom preparation strategies](##pool-item-preparation-strategy).
-Common use cases for [preparation strategies](##pool-item-preparation-strategy) 
+It allows for, but does not require, [custom preparation strategies](#pool-item-preparation-strategy).
+Common use cases for [preparation strategies](#pool-item-preparation-strategy) 
 include objects that benefit from long-lived connections, 
 like SMTP or database connections.
 
@@ -44,10 +44,10 @@ But if the lease request queue is empty, the item will be placed in the availabl
 
 You can access `IPool<TPoolItem>` by registering it with the service collection by calling 
 one of the `IServiceCollection` extensions from the `Pool.DependencyInjection` namespace.
-See [Dependency Injection](##dependency-injection) for more information.
+See [Dependency Injection](#dependency-injection) for more information.
 
 `IPool<TPoolItem>` provides three methods with convenient overloads:
-- `LeaseAsync` - returns an item from the pool and optionally [performs a ready check](##pool-item-preparation-strategy)
+- `LeaseAsync` - returns an item from the pool and optionally [performs a ready check](#pool-item-preparation-strategy)
 - `ReleaseAsync` - returns an item to the pool
 - `ClearAsync` - clears the pool, disposes of items as required, and reinitializes the pool with `PoolOptions.MinSize` items
 
@@ -66,23 +66,23 @@ finally
 ```
 
 `Pool<TPoolItem>` has three dependencies injected into the constructor:
-- `IIitemFactory<TPoolItem>`
+- `IItemFactory<TPoolItem>`
 - `IPreparationStrategy<TPoolItem>`
 - `PoolOptions`
 
-See [Dependency Injection](##dependency-injection) for more information.
+See [Dependency Injection](#dependency-injection) for more information.
 
-The pool will use an [item factory](##pool-item-factory) to create new items as required.
-During the lease operation, the pool invokes a [ready checker](##pool-item-preparation-strategy) 
+The pool will use an [item factory](#pool-item-factory) to create new items as required.
+During the lease operation, the pool invokes a [ready checker](#pool-item-preparation-strategy) 
 to initialize an item that isn't ready.
 
 ## Pool Item Factory
-Implement the `IIitemFactory<TPoolItem>` interface to create new items for the pool. 
+Implement the `IItemFactory<TPoolItem>` interface to create new items for the pool. 
 The library provides a default pool implementation that uses `IServiceProvider` to construct items.
 To use the default implementation, call `AddPool<TPoolItem>` or 
 `AddPoolWithDefaultFactory<TPoolItem, TPreparationStrategy>` 
 when registering the pool with the service collection.
-See [Dependency Injection](##dependency-injection) for more information.
+See [Dependency Injection](#dependency-injection) for more information.
 
 ## Pool Item Preparation Strategy
 Implement the `IPreparationStrategy<TPoolItem>` interface to ensure an item is ready for use when leased from the pool.
@@ -92,7 +92,7 @@ There's a default `IPreparationStrategy<TPoolItem>` implementation that always r
 To use the default implementation with a custom item factory, 
 call `AddPool<TPoolItem>` 
 when registering the pool with the service collection.
-See [Dependency Injection](##dependency-injection) for more information.
+See [Dependency Injection](#dependency-injection) for more information.
 
 Ready check is useful for items that may become inactive for some time, 
 such as an SMTP connection that has been idle long enough for the server to terminate
@@ -131,6 +131,110 @@ services.AddPool<IMailTransport>(configuration, options =>
     // use default factory, which uses the service provider to construct pool items
     options.RegisterDefaultFactory = true;
 });
+```
+
+## Named Pools
+
+Starting from March 2025, Pool supports creating multiple named instances of pools for the same item type. This allows you to configure different pools with different settings for the same type of item.
+
+### Why Use Named Pools?
+
+Named pools are useful when you need:
+- Different pool configurations for the same type (different min/max sizes, timeouts, etc.)
+- Dedicated pools for different use cases or components in your application
+- Isolating pool resources for different concerns
+
+### Using Named Pools
+
+#### Basic Named Pool Registration
+
+To register a named pool and its factory:
+
+**note: the name provided will be converted to a service key in the format `{name}.{typeof(TPoolItem).Name}.pool`**
+
+```csharp
+// Add the pool factory
+services.AddPoolFactory<MyPoolItem>();
+
+// Add a named pool
+services.AddNamedPool<MyPoolItem>(
+    "ReadPool",
+    configuration,
+    options => 
+    {
+        options.MinSize = 5;
+        options.MaxSize = 20;
+        options.LeaseTimeout = TimeSpan.FromSeconds(30);
+    });
+
+// Add another named pool with different configuration
+services.AddNamedPool<MyPoolItem>(
+    "WritePool",
+    configuration,
+    options => 
+    {
+        options.MinSize = 2;
+        options.MaxSize = 10;
+        options.LeaseTimeout = TimeSpan.FromSeconds(60);
+    });
+```
+
+You can also register a typed client that will use a specific named pool:
+
+```csharp
+// Register a pool with a typed client
+services.AddPool<MyPoolItem, MyPoolClient>(
+    configuration,
+    options => 
+    {
+        options.MinSize = 5;
+        options.MaxSize = 20;
+    },
+    client => 
+    {
+        // Configure the pool client if needed
+    });
+```
+
+Inject the IPoolFactory<TPoolItem> into your class and create the pool you need:
+```csharp
+public class MyService
+{
+    private readonly IPool<MyPoolItem> readPool;
+    private readonly IPool<MyPoolItem> writePool;
+
+    public MyService(IPoolFactory<MyPoolItem> poolFactory)
+    {
+        readPool = poolFactory.CreatePool("ReadPool.MyPoolItem.pool");
+        writePool = poolFactory.CreatePool("WritePool.MyPoolItem.pool");
+    }
+
+    public async Task DoReadOperationAsync()
+    {
+        var item = await readPool.LeaseAsync();
+        try
+        {
+            // Use the item for read operations
+        }
+        finally
+        {
+            await readPool.ReleaseAsync(item);
+        }
+    }
+
+    public async Task DoWriteOperationAsync()
+    {
+        var item = await writePool.LeaseAsync();
+        try
+        {
+            // Use the item for write operations
+        }
+        finally
+        {
+            await writePool.ReleaseAsync(item);
+        }
+    }
+}
 ```
 
 ## Dev Log
