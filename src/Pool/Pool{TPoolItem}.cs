@@ -285,20 +285,17 @@ public sealed class Pool<TPoolItem>
             .Select(item => ReleaseAsync(item, cancellationToken)));
     }
 
-    private TPoolItem[] CreateItems(int count)
+    private IEnumerable<TPoolItem> CreateItems(int count)
     {
         lock (this)
         {
             itemsAllocated = count;
         }
 
-        var items = new TPoolItem[count];
         for (var i = 0; i < count; i++)
         {
-            items[i] = itemFactory.CreateItem();
+            yield return itemFactory.CreateItem();
         }
-
-        return items;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
