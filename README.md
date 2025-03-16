@@ -144,4 +144,7 @@ services.AddPool<IMailTransport>(configuration, options =>
 - 18 MAY 2024 - refactored dependency injection extensions. 
 - 18 MAY 2024 - refactored to use ValueTask on LeaseAsync method. 
 - 16 JUL 2024 - better naming and cleaned up smtp sample project.
-- 17 JUL 2025 - added idle timeout
+- 17 JUL 2024 - added idle timeout
+- XX MAR 2025 - better lease timout handling
+- XX MAR 2025 - added metrics
+- 16 MAR 2025 - added named pools
