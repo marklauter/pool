@@ -16,6 +16,9 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Pool.Tests", "Pool.Tests\Pool.Tests.csproj", "{52461D23-3DF4-4999-A8B7-33E5A347D36A}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "github", "github", "{D7906B44-E7D2-4D56-92E5-B93224F6E284}"
+	ProjectSection(SolutionItems) = preProject
+		..\.github\copilot-instructions.md = ..\.github\copilot-instructions.md
+	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "workflows", "workflows", "{1AD8A305-D0ED-4DC5-9818-B2B72106E1B4}"
 	ProjectSection(SolutionItems) = preProject
