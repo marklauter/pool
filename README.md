@@ -118,6 +118,7 @@ public async Task PrepareAsync(IMailTransport item, CancellationToken cancellati
     await item.AuthenticateAsync(credentials.UserName, credentials.Password, cancellationToken);
 }
 ```
+
 ## Dependency Injection
 The `ServiceCollectionExtensions` class is in the `Pool.DependencyInjection` namespace.
 - Call `AddPool<TPoolItem>` to register a singleton pool. Pass `Action<PoolRegistrationOptions>` to specify whether or not to register the default item factory and ready check implementations.
@@ -236,6 +237,60 @@ public class MyService
     }
 }
 ```
+
+## Metrics
+
+`IPoolMetrics` provides a comprehensive metrics collection system for your pools, allowing you to monitor performance, diagnose issues, and optimize usage patterns. The Pool library includes a default implementation (`DefaultPoolMetrics`) that integrates with .NET's built-in metrics infrastructure.
+
+Metrics are named using the pattern `{poolName}.{metricName}` and include the following:
+
+### Counter Metrics
+- `{name}.lease_exception` - Tracks the number of exceptions thrown during pool item lease operations
+- `{name}.preparation_exception` - Tracks the number of exceptions thrown during pool item preparation
+
+### Histogram Metrics
+- `{name}.lease_wait_time` - Measures the time spent waiting to acquire a pool item (in milliseconds)
+- `{name}.item_preparation_time` - Measures the time spent preparing pool items before use (in milliseconds)
+
+### Observable Metrics
+- `{name}.items_allocated` - Tracks the total number of items allocated in the pool
+- `{name}.items_available` - Tracks the number of items currently available for lease
+- `{name}.active_leases` - Tracks the number of currently active leases
+- `{name}.queued_leases` - Tracks the number of lease requests waiting in the queue
+- `{name}.utilization_rate` - Monitors the pool utilization rate (active leases / total items)
+
+### Using Pool Metrics
+
+Pool metrics are automatically enabled when you register a pool with the service collection. The metrics can be consumed by any metrics collector that supports .NET's metrics API, such as OpenTelemetry, Prometheus, or custom exporters.
+
+Example of configuring OpenTelemetry to collect pool metrics:
+
+```csharp
+services.AddOpenTelemetry()
+    .WithMetrics(builder => builder
+        // Add your pool metrics to OpenTelemetry
+        .AddMeter(Pool<MyPoolItem>.PoolName)
+        // Configure exporters as needed
+        .AddPrometheusExporter());
+```
+
+You can also create a custom metrics implementation by implementing the `IPoolMetrics` interface and registering it with the DI container:
+
+```csharp
+services.AddPool<MyPoolItem>(configuration, options =>
+{
+    options.RegisterDefaultFactory = true;
+})
+.AddSingleton<IPoolMetrics, MyCustomPoolMetrics>();
+```
+
+Pool metrics can help you answer important questions about your pool's performance and health:
+- Is the pool sized appropriately for my workload?
+- Are items taking too long to prepare?
+- Are callers waiting too long to acquire items?
+- Is the pool under heavy load or running efficiently?
+
+Using these metrics, you can fine-tune your pool configuration for optimal performance in your specific scenarios.
 
 ## Dev Log
 - 12 FEB 2024 - started SMTP pool at the end of 2023, but got busy with other stuff. I'll take it up again soon though because I need it for a work project.
