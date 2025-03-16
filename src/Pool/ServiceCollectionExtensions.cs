@@ -24,7 +24,6 @@ public static class ServiceCollectionExtensions
     /// <returns><see cref="IServiceCollection"/></returns>
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
-    [UnconditionalSuppressMessage("AOT", "IL3050:Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.", Justification = "<Pending>")]
     public static IServiceCollection AddPool<TPoolItem>(
         this IServiceCollection services,
         IConfiguration configuration,
