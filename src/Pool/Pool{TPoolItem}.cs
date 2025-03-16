@@ -158,6 +158,7 @@ public sealed class Pool<TPoolItem>
     /// <param name="preparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></param>
     /// <param name="options"><see cref="PoolOptions"/></param>
     /// <exception cref="ArgumentNullException"></exception>
+    [SuppressMessage("Style", "IDE0306:Simplify collection initialization", Justification = "no it can't")]
     public Pool(
         IPoolMetrics metrics,
         IItemFactory<TPoolItem> itemFactory,
