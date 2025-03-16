@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Pool.DefaultStrategies;
 using Pool.Metrics;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.Metrics;
 
 namespace Pool;
 
@@ -175,8 +176,14 @@ public static class NamedPoolServiceCollectionExtensions
 
         var serviceKey = ServiceKey<TPoolItem>(name);
 
-        services.TryAddKeyedSingleton<IPoolMetrics>(serviceKey,
-            (services, serviceKey) => new DefaultPoolMetrics($"{name}.{Pool<TPoolItem>.PoolName}", services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
+        services
+            .AddMetrics()
+            .TryAddKeyedSingleton<IPoolMetrics>(serviceKey,
+            (services, serviceKey) =>
+            new DefaultPoolMetrics(
+                $"{name}.{Pool<TPoolItem>.PoolName}",
+                services.GetRequiredService<IMeterFactory>(),
+                services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
         return services;
     }
 }

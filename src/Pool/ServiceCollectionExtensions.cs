@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Pool.DefaultStrategies;
 using Pool.Metrics;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.Metrics;
 
 namespace Pool;
 
@@ -100,8 +101,13 @@ public static class ServiceCollectionExtensions
         where TPoolItem : class
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.TryAddSingleton<IPoolMetrics>((services) =>
-            new DefaultPoolMetrics(Pool<TPoolItem>.PoolName, services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
+        services
+            .AddMetrics()
+            .TryAddSingleton<IPoolMetrics>((services) =>
+            new DefaultPoolMetrics(
+                Pool<TPoolItem>.PoolName,
+                services.GetRequiredService<IMeterFactory>(),
+                services.GetRequiredService<ILogger<DefaultPoolMetrics>>()));
         return services;
     }
 
