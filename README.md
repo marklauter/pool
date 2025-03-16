@@ -1,7 +1,7 @@
 ## Build Status
 [![.NET Test](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml)
 [![.NET Publish](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml)
-[![Nuget](https://img.shields.io/badge/Nuget-v5.0.0-blue)](https://www.nuget.org/packages/MSL.Pool/)
+[![Nuget](https://img.shields.io/badge/Nuget-v5.1.0-blue)](https://www.nuget.org/packages/MSL.Pool/)
 [![Nuget](https://img.shields.io/badge/.NET-8.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0/)
 
 ## 
@@ -134,6 +134,60 @@ services.AddPool<IMailTransport>(configuration, options =>
 });
 ```
 
+## Pool Options
+
+The `PoolOptions` class configures behavior of the pool. These options control pool sizing, timeouts, and factory selection.
+
+You can configure pool options:
+- When registering a pool with dependency injection
+- By creating a pool options instance and passing it to the pool constructor
+- Through configuration binding from appsettings.json
+
+### Available Options
+
+- `MinSize` - The minimum number of items to maintain in the pool
+  - This is the initial pool size when created
+  - Defaults to `0`
+
+- `MaxSize` - The maximum number of items the pool can create
+  - When reached, lease requests are queued until items are released
+  - Defaults to `Int32.MaxValue`
+
+- `LeaseTimeout` - The maximum time to wait when leasing an item from the pool
+  - When expired, lease throws a `TimeoutException`
+  - Defaults to `Timeout.InfiniteTimeSpan`
+
+- `PreparationTimeout` - The maximum time to wait for item preparation
+  - Controls timeout for ready checking and preparation
+  - Defaults to `Timeout.InfiniteTimeSpan`
+
+- `IdleTimeout` - The maximum time an item can remain idle in the pool
+  - Idle items exceeding this timeout are removed and disposed
+  - Defaults to `Timeout.InfiniteTimeSpan`
+
+- `UseDefaultPreparationStrategy` - Whether to use the default preparation strategy
+  - The default strategy always returns `true` from `IsReadyAsync`
+  - Defaults to `false`
+
+- `UseDefaultFactory` - Whether to use the default item factory
+  - The default factory uses the service provider to construct items
+  - Defaults to `false`
+
+### Sample Configuration
+
+```csharp
+// Register with dependency injection through configuration
+services.AddPool<MyPoolItem>(configuration)
+
+// or through the configure options action
+services.AddPool<MyPoolItem>(configuration, options =>
+{
+    options.MinSize = 2;
+    options.MaxSize = 10;
+});
+
+```
+
 ## Named Pools
 
 Starting from March 2025, Pool supports creating multiple named instances of pools for the same item type. This allows you to configure different pools with different settings for the same type of item.
@@ -198,6 +252,7 @@ services.AddPool<MyPoolItem, MyPoolClient>(
 ```
 
 Inject the IPoolFactory<TPoolItem> into your class and create the pool you need:
+
 ```csharp
 public class MyService
 {
