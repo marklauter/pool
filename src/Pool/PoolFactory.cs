@@ -21,14 +21,10 @@ internal sealed class PoolFactory<TPoolItem>(IServiceProvider serviceProvider) :
     public IPool<TPoolItem> CreatePool(string name)
     {
         ArgumentException.ThrowIfNullOrEmpty(name, nameof(name));
-
         return pools.GetOrAdd(name, CreatePoolInstance);
     }
 
-    private IPool<TPoolItem> CreatePoolInstance(string name)
-    {
-        var pool = serviceProvider.GetRequiredKeyedService<IPool<TPoolItem>>(name);
-
-        return pool ?? throw new InvalidOperationException($"No pool named '{name}' of type '{typeof(TPoolItem).Name}' has been registered.");
-    }
+    private IPool<TPoolItem> CreatePoolInstance(string name) =>
+        serviceProvider.GetRequiredKeyedService<IPool<TPoolItem>>(name)
+            ?? throw new InvalidOperationException($"No pool named '{name}' of type '{typeof(TPoolItem).Name}' has been registered.");
 }
