@@ -157,12 +157,12 @@ public static class NamedPoolServiceCollectionExtensions
     }
 
     /// <summary>
-    /// AddDefaultPoolMetrics registers <see cref="IPoolMetrics"/> with the default implementation.
+    /// Registers <see cref="IPoolMetrics"/> with the default implementation.
     /// </summary>
-    /// <typeparam name="TPoolItem"></typeparam>
-    /// <param name="services"><see cref="IServiceCollection"/></param>
+    /// <typeparam name="TPoolItem">The type of item contained by the pool.</typeparam>
+    /// <param name="services">The <see cref="IServiceCollection"/> to add services to.</param>
     /// <param name="name">The name of the pool.</param>
-    /// <returns><see cref="IServiceCollection"/></returns>
+    /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
     [RequiresDynamicCode("dynamic binding of strongly typed options might require dynamic code")]
     [RequiresUnreferencedCode("dynamic binding of strongly typed options might require unreferenced code")]
     public static IServiceCollection AddDefaultPoolMetrics<TPoolItem>(
