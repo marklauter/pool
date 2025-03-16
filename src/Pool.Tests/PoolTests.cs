@@ -4,6 +4,8 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Pool.Tests;
 
+// todo: add metrics tests https://learn.microsoft.com/en-us/dotnet/core/diagnostics/metrics-instrumentation#test-custom-metrics
+
 public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 {
     [Fact]
