@@ -111,16 +111,25 @@ public static class NamedPoolServiceCollectionExtensions
             .AddDefaultPoolMetrics<TPoolItem>(name)
             .AddKeyedSingleton<IPool<TPoolItem>>(serviceKey, (services, serviceKey) =>
             {
-                var options = services.GetRequiredKeyedService<PoolOptions>(serviceKey);
-                var metrics = services.GetRequiredKeyedService<IPoolMetrics>(serviceKey);
                 var itemFactory =
                     services.GetKeyedService<IItemFactory<TPoolItem>>(serviceKey)
                     ?? services.GetRequiredService<IItemFactory<TPoolItem>>();
+
+                var logger =
+                    services.GetKeyedService<ILogger<Pool<TPoolItem>>>(serviceKey)
+                    ?? services.GetRequiredService<ILogger<Pool<TPoolItem>>>();
+
+                var metrics =
+                    services.GetRequiredKeyedService<IPoolMetrics>(serviceKey);
+
                 var preparationStrategy =
                     services.GetKeyedService<IPreparationStrategy<TPoolItem>>(serviceKey)
                     ?? services.GetService<IPreparationStrategy<TPoolItem>>();
 
-                return new Pool<TPoolItem>(metrics, itemFactory, preparationStrategy, options);
+                var options =
+                    services.GetRequiredKeyedService<PoolOptions>(serviceKey);
+
+                return new Pool<TPoolItem>(itemFactory, logger, metrics, preparationStrategy, options);
             });
 
         return services;
