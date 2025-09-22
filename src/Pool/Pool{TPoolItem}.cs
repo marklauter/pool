@@ -1,4 +1,5 @@
-﻿using Pool.Metrics;
+﻿using Microsoft.Extensions.Logging;
+using Pool.Metrics;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -126,8 +127,9 @@ public sealed class Pool<TPoolItem>
     private readonly ConcurrentQueue<LeaseRequest> leaseRequests = new();
     private readonly int maxSize;
     private readonly int initialSize;
-    private readonly bool preparationRequired;
+    private readonly bool isPreparationRequired;
     private readonly IItemFactory<TPoolItem> itemFactory;
+    private readonly ILogger<Pool<TPoolItem>> logger;
     private readonly IPreparationStrategy<TPoolItem>? preparationStrategy;
     private readonly TimeSpan leaseTimeout;
     private readonly TimeSpan idleTimeout;
@@ -145,12 +147,14 @@ public sealed class Pool<TPoolItem>
     /// </summary>
     /// <param name="metrics"><see cref="IPoolMetrics"/></param>
     /// <param name="itemFactory"><see cref="IItemFactory{TPoolItem}"/></param>
+    /// <param name="logger"></param>
     /// <param name="options"><see cref="PoolOptions"/></param>
     public Pool(
-        IPoolMetrics metrics,
         IItemFactory<TPoolItem> itemFactory,
+        ILogger<Pool<TPoolItem>> logger,
+        IPoolMetrics metrics,
         PoolOptions options)
-        : this(metrics, itemFactory, null, options)
+        : this(itemFactory, logger, metrics, null, options)
     { }
 
     /// <summary>
@@ -158,25 +162,33 @@ public sealed class Pool<TPoolItem>
     /// </summary>
     /// <param name="metrics"><see cref="IPoolMetrics"/></param>
     /// <param name="itemFactory"><see cref="IItemFactory{TPoolItem}"/></param>
+    /// <param name="logger"></param>
     /// <param name="preparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></param>
     /// <param name="options"><see cref="PoolOptions"/></param>
     /// <exception cref="ArgumentNullException"></exception>
     [SuppressMessage("Style", "IDE0306:Simplify collection initialization", Justification = "no it can't")]
     public Pool(
-        IPoolMetrics metrics,
         IItemFactory<TPoolItem> itemFactory,
+        ILogger<Pool<TPoolItem>> logger,
+        IPoolMetrics metrics,
         IPreparationStrategy<TPoolItem>? preparationStrategy,
         PoolOptions options)
     {
-        this.itemFactory = itemFactory ?? throw new ArgumentNullException(nameof(itemFactory));
-        this.metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        ArgumentNullException.ThrowIfNull(itemFactory);
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(metrics);
+
+        this.itemFactory = itemFactory;
+        this.logger = logger;
+        this.metrics = metrics;
+
         this.metrics.RegisterItemsAllocatedObserver(() => ItemsAllocated);
         this.metrics.RegisterItemsAvailableObserver(() => ItemsAvailable);
         this.metrics.RegisterActiveLeasesObserver(() => ActiveLeases);
         this.metrics.RegisterQueuedLeasesObserver(() => QueuedLeases);
-        this.metrics.RegisterUtilizationRateObserver(() => (double)ActiveLeases / ItemsAllocated);
+        this.metrics.RegisterUtilizationRateObserver(() => ItemsAllocated == 0 ? 0 : (double)ActiveLeases / ItemsAllocated);
 
-        preparationRequired = preparationStrategy is not null;
+        isPreparationRequired = preparationStrategy is not null;
         this.preparationStrategy = preparationStrategy;
         maxSize = options?.MaxSize ?? Int32.MaxValue;
         initialSize = Math.Min(options?.MinSize ?? 0, maxSize);
@@ -186,6 +198,8 @@ public sealed class Pool<TPoolItem>
         preparationTimeout = options?.PreparationTimeout ?? Timeout.InfiniteTimeSpan;
 
         pool = new(CreateItems(initialSize).Select(PoolItem.Create));
+
+        logger.LogInformation("{PoolName} created with {@Options}", PoolName, options);
     }
 
     private volatile int itemsAllocated;
@@ -211,41 +225,59 @@ public sealed class Pool<TPoolItem>
     /// <inheritdoc/>
     public async ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
+        using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(LeaseAsync), Guid.NewGuid());
+
+        var timer = Stopwatch.StartNew();
         try
         {
-            var timer = Stopwatch.StartNew();
+            logger.LogDebug("starting lease request, pool state: {ItemsAllocated} of {MaxSize} allocated, {ItemsAvailable} available",
+                ItemsAllocated, maxSize, ItemsAvailable);
+
             if (IsNotDisposed().TryAcquireItem(out var item))
             {
-                metrics.RecordLeaseWaitTime(timer.Elapsed);
+                RecordLeaseWaitTime(timer);
+                // returns item to queue on preparation failure
                 return await EnsurePreparedAsync(item.Item, cancellationToken);
             }
 
+            logger.LogInformation("no items available, queuing lease request. lease queue size: {QueuedLeases}", QueuedLeases);
+            // lease requests are pulled off the queue in the ReleaseAsync method
             var leaseRequest = new LeaseRequest(leaseTimeout, cancellationToken);
             leaseRequests.Enqueue(leaseRequest);
 
-            var result = await leaseRequest.Task;
-            metrics.RecordLeaseWaitTime(timer.Elapsed);
-            return result;
+            RecordLeaseWaitTime(timer);
+            // returns item to queue on preparation failure
+            return await EnsurePreparedAsync(await leaseRequest.Task, cancellationToken);
         }
         catch (Exception ex)
         {
-            metrics.RecordLeaseException(ex);
+            RecordLeaseException(timer, ex);
             throw;
         }
     }
 
+    private void RecordLeaseException(Stopwatch timer, Exception ex)
+    {
+        timer.Stop();
+        logger.LogError(ex, "lease failure after {ElapsedMs}ms", timer.ElapsedMilliseconds);
+        metrics.RecordLeaseException(ex);
+    }
+
+    private void RecordLeaseWaitTime(Stopwatch timer)
+    {
+        timer.Stop();
+        logger.LogDebug("lease completed in {ElapsedMs}ms", timer.ElapsedMilliseconds);
+        metrics.RecordLeaseWaitTime(timer.Elapsed);
+    }
+
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task ReleaseAsync(TPoolItem item) => ReleaseAsync(item, CancellationToken.None);
-
-    /// <inheritdoc/>
-    public async Task ReleaseAsync(
-        TPoolItem item,
-        CancellationToken cancellationToken)
+    public void Release(TPoolItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(Release), Guid.NewGuid());
 
-        var isPrepared = false;
+        logger.LogDebug("{PendingLeaseRequestCount}", leaseRequests.Count);
         while (leaseRequests.TryDequeue(out var leaseRequest))
         {
             // Tries to set the task result and return, which unblocks the caller awaiting the lease request.
@@ -253,38 +285,31 @@ public sealed class Pool<TPoolItem>
             // then the lease request is timed out or canceled,
             // and the caller already knows about the cancelation,
             // so we can safely ignore the lease request.
-            // This effectively purges dead requests from the queue.
-            if (leaseRequest.IsNotExpired())
+            // This purges expired requests from the queue.
+            if (leaseRequest.IsNotExpired() && leaseRequest.TrySetResult(item))
             {
-                if (!isPrepared)
-                {
-                    item = await EnsurePreparedAsync(item, cancellationToken);
-                    isPrepared = true;
-                }
-
-                if (leaseRequest.TrySetResult(item))
-                {
-                    return;
-                }
+                logger.LogDebug("fulfilled queued lease request");
+                return;
             }
         }
 
         // there are no valid lease requests, so return the item to the pool
+        logger.LogDebug("returned item to the pool");
         pool.Enqueue(PoolItem.Create(item));
     }
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Task ClearAsync() => ClearAsync(CancellationToken.None);
-
-    /// <inheritdoc/>
-    public async Task ClearAsync(CancellationToken cancellationToken)
+    public void Clear()
     {
+        using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(Clear), Guid.NewGuid());
+
         IsNotDisposed().EnsureItemsDisposed();
 
-        await Task.WhenAll(
-            CreateItems(QueuedLeases > initialSize ? QueuedLeases : initialSize)
-            .Select(item => ReleaseAsync(item, cancellationToken)));
+        foreach (var item in CreateItems(QueuedLeases > initialSize ? QueuedLeases : initialSize))
+        {
+            Release(item);
+        }
     }
 
     private IEnumerable<TPoolItem> CreateItems(int count)
@@ -301,8 +326,22 @@ public sealed class Pool<TPoolItem>
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool TryAcquireItem(out PoolItem item) =>
-        TryDequeue(out item) || TryCreateItem(out item);
+    private bool TryAcquireItem(out PoolItem item)
+    {
+        if (TryDequeue(out item))
+        {
+            logger.LogDebug("TryAcquireItem {AcquisitionMethod}", "dequeued");
+            return true;
+        }
+
+        if (TryCreateItem(out item))
+        {
+            logger.LogDebug("TryAcquireItem {AcquisitionMethod}", "created");
+            return true;
+        }
+
+        return false;
+    }
 
     private bool TryCreateItem(out PoolItem item)
     {
@@ -313,14 +352,29 @@ public sealed class Pool<TPoolItem>
             if (!canCreate)
             {
                 item = default;
+                logger.LogWarning("{PoolName}.{MethodName} maximum capacity reached {MaxCapacity}", PoolName, nameof(TryCreateItem), maxSize);
                 return false;
             }
 
             ++itemsAllocated;
         }
 
-        item = PoolItem.Create(itemFactory.CreateItem());
-        return true;
+        logger.LogDebug("{PoolName}.{MethodName} creating new pool item, total allocated: {ItemsAllocated}", PoolName, nameof(TryCreateItem), itemsAllocated);
+        try
+        {
+            item = PoolItem.Create(itemFactory.CreateItem());
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "{PoolName}.{MethodName} failure", PoolName, nameof(TryCreateItem));
+            lock (this)
+            {
+                --itemsAllocated;
+            }
+
+            throw;
+        }
     }
 
     private bool TryDequeue(out PoolItem item)
@@ -332,6 +386,8 @@ public sealed class Pool<TPoolItem>
                 return true;
             }
 
+            logger.LogInformation("{PoolName}.{MethodName} removing expired item, {IdleTimeMs}ms exceeded limit: {IdleTimeoutMs}ms",
+                PoolName, nameof(TryDequeue), item.IdleTime.TotalMilliseconds, idleTimeout.TotalMilliseconds);
             RemoveItem(item.Item);
         }
 
@@ -350,17 +406,24 @@ public sealed class Pool<TPoolItem>
             --itemsAllocated;
         }
 
+        logger.LogDebug("{PoolName}.{MethodName} removing idle item from pool, total allocated: {ItemsAllocated}", PoolName, nameof(RemoveItem), itemsAllocated);
         if (IsPoolItemDisposable)
         {
             (item as IDisposable)?.Dispose();
         }
     }
 
+    /// <remarks>
+    /// releases pool item if the preparation fails
+    /// </remarks>
     private async ValueTask<TPoolItem> EnsurePreparedAsync(
         TPoolItem item,
         CancellationToken cancellationToken)
     {
-        if (!preparationRequired)
+        logger.LogInformation("{PoolName}.{MethodName} ensuring item preparation, required: {IsPreparationRequired}",
+            PoolName, nameof(EnsurePreparedAsync), isPreparationRequired);
+
+        if (!isPreparationRequired)
         {
             return item;
         }
@@ -374,17 +437,23 @@ public sealed class Pool<TPoolItem>
 
             if (await preparationStrategy!.IsReadyAsync(item, cancellationToken))
             {
+                logger.LogDebug("item already prepared, skipping preparation step");
                 return item;
             }
 
+            logger.LogDebug("preparing item with timeout: {PreparationTimeoutMs}ms", preparationTimeout.TotalMilliseconds);
             await preparationStrategy.PrepareAsync(item, cancellationToken);
 
+            timer.Stop();
             metrics.RecordPreparationTime(timer.Elapsed);
+            logger.LogDebug("item preparation completed in {ElapsedMs}ms", timer.ElapsedMilliseconds);
             return item;
         }
         catch (Exception ex)
         {
+            Release(item);
             metrics.RecordPreparationException(ex);
+            logger.LogError(ex, "preparation failure");
             throw;
         }
     }

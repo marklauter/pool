@@ -11,12 +11,7 @@ public interface IPool<TPoolItem>
     /// <summary>
     /// clears the pool and sets allocated to zero
     /// </summary>
-    Task ClearAsync();
-
-    /// <summary>
-    /// clears the pool and sets allocated to zero
-    /// </summary>
-    Task ClearAsync(CancellationToken cancellationToken);
+    void Clear();
 
     /// <summary>
     /// simple lease.
@@ -43,14 +38,7 @@ public interface IPool<TPoolItem>
     /// returns an item to the pool
     /// </summary>
     /// <param name="item"></param>
-    Task ReleaseAsync(TPoolItem item);
-
-    /// <summary>
-    /// returns an item to the pool
-    /// </summary>
-    /// <param name="item"></param>
-    /// <param name="cancellationToken"></param>
-    Task ReleaseAsync(TPoolItem item, CancellationToken cancellationToken);
+    void Release(TPoolItem item);
 
     /// <summary>
     /// returns how many items are currently allocated by the pool
