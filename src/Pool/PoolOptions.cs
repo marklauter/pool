@@ -24,7 +24,7 @@ public sealed class PoolOptions
     public TimeSpan LeaseTimeout { get; set; } = Timeout.InfiniteTimeSpan;
 
     /// <summary>
-    /// ReadyTimeout gets or sets the timeout to wait for the ready check and attempt to make ready a pool item before completing the lease request.
+    /// PreparationTimeout gets or sets the timeout to wait for the ready check and attempt to make ready a pool item before completing the lease request.
     /// </summary>
     /// <remarks>Defaults to Timeout.InfiniteTimeSpan</remarks>
     public TimeSpan PreparationTimeout { get; set; } = Timeout.InfiniteTimeSpan;
