@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Pool.DefaultStrategies;
 using Pool.Metrics;
 using Pool.Tests.Fakes;
@@ -8,6 +9,11 @@ namespace Pool.Tests;
 
 public sealed class PoolItemFactoryTests(IPoolMetrics metrics)
 {
+    private static readonly ILoggerFactory LoggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
+        builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
+
+    private static readonly ILogger<Pool<IEcho>> Logger = LoggerFactory.CreateLogger<Pool<IEcho>>();
+
     [Fact]
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP017:Prefer using", Justification = "required for test")]
     public async Task PoolItemFactory_Doesnt_Crash_On_Dispose()
@@ -18,14 +24,15 @@ public sealed class PoolItemFactoryTests(IPoolMetrics metrics)
 
         var factory = new DefaultItemFactory<IEcho>(services);
         var pool = new Pool<IEcho>(
-            metrics,
             factory,
+            Logger,
+            metrics,
             new DefaultPreparationStrategy<IEcho>(),
             new PoolOptions { MinSize = 5 });
         var item = await pool.LeaseAsync(CancellationToken.None);
         Assert.NotNull(item);
 
-        await pool.ReleaseAsync(item);
+        pool.Release(item);
 
         // pool disposes all the items on the queue
         pool.Dispose();

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Pool.Metrics;
 using Pool.Tests.Fakes;
 using System.Diagnostics.CodeAnalysis;
@@ -8,6 +9,11 @@ namespace Pool.Tests;
 
 public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 {
+    private static readonly ILoggerFactory LoggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
+        builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
+
+    private static readonly ILogger<Pool<IEcho>> Logger = LoggerFactory.CreateLogger<Pool<IEcho>>();
+
     [Fact]
     public void Pool_Is_Injected() => Assert.NotNull(pool);
 
@@ -28,7 +34,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
         Assert.NotNull(instance);
         Assert.Equal(1, pool.ActiveLeases);
 
-        await pool.ReleaseAsync(instance, CancellationToken.None);
+        pool.Release(instance);
         Assert.Equal(0, pool.ActiveLeases);
     }
 
@@ -51,7 +57,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
         Assert.Equal(1, pool.QueuedLeases);
         Assert.False(task.IsCompleted);
 
-        await pool.ReleaseAsync(instance1, CancellationToken.None);
+        pool.Release(instance1);
         Assert.Equal(2, pool.ActiveLeases);
         Assert.Equal(0, pool.ItemsAvailable);
         Assert.Equal(0, pool.QueuedLeases);
@@ -60,12 +66,12 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
         var instance3 = await task;
         Assert.NotNull(instance3);
 
-        await pool.ReleaseAsync(instance3, CancellationToken.None);
+        pool.Release(instance3);
         Assert.Equal(1, pool.ActiveLeases);
         Assert.Equal(1, pool.ItemsAvailable);
         Assert.Equal(0, pool.QueuedLeases);
 
-        await pool.ReleaseAsync(instance2, CancellationToken.None);
+        pool.Release(instance2);
         Assert.Equal(0, pool.ActiveLeases);
         Assert.Equal(2, pool.ItemsAvailable);
         Assert.Equal(0, pool.QueuedLeases);
@@ -78,7 +84,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 
         Assert.True(instance.IsConnected);
 
-        await pool.ReleaseAsync(instance, CancellationToken.None);
+        pool.Release(instance);
     }
 
     [Fact]
@@ -96,8 +102,8 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
         }
         finally
         {
-            await pool.ReleaseAsync(instance1, CancellationToken.None);
-            await pool.ReleaseAsync(instance2, CancellationToken.None);
+            pool.Release(instance1);
+            pool.Release(instance2);
         }
     }
 
@@ -130,10 +136,10 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
             IdleTimeout = TimeSpan.FromMilliseconds(0),
         };
 
-        using var pool = new Pool<IEcho>(metrics, new EchoFactory(), new EchoPreparationStrategy(), options);
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, new EchoPreparationStrategy(), options);
 
         var instance = await pool.LeaseAsync(CancellationToken.None);
-        await pool.ReleaseAsync(instance, CancellationToken.None);
+        pool.Release(instance);
         await Task.Delay(10);
         _ = await pool.LeaseAsync(CancellationToken.None);
 
@@ -150,13 +156,13 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
             UseDefaultFactory = false,
         };
 
-        using var pool = new Pool<IEcho>(metrics, new EchoFactory(), preparationStrategy, options);
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, preparationStrategy, options);
 
         var instance = await pool.LeaseAsync(CancellationToken.None);
 
         Assert.True(await preparationStrategy.IsReadyAsync(instance, CancellationToken.None));
 
-        await pool.ReleaseAsync(instance, CancellationToken.None);
+        pool.Release(instance);
     }
 
     [Fact]
@@ -164,8 +170,9 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     public async Task Concurrent_Leases_Are_Handled()
     {
         using var pool = new Pool<IEcho>(
-            metrics,
             new EchoFactory(),
+            Logger,
+            metrics,
             new EchoPreparationStrategy(), new PoolOptions
             {
                 IdleTimeout = TimeSpan.FromMinutes(1),
@@ -187,22 +194,22 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 
         foreach (var instance in instances)
         {
-            await pool.ReleaseAsync(instance, CancellationToken.None);
+            pool.Release(instance);
         }
 
         Assert.Equal(0, pool.ActiveLeases);
     }
 
     [Fact]
-    public async Task ClearAsync_Clears_Pool()
+    public async Task Clear_Clears_Pool()
     {
         var instance = await pool.LeaseAsync(CancellationToken.None);
         Assert.Equal(1, pool.ItemsAllocated);
 
-        await pool.ReleaseAsync(instance, CancellationToken.None);
+        pool.Release(instance);
         Assert.Equal(1, pool.ItemsAllocated);
 
-        await pool.ClearAsync(CancellationToken.None);
+        pool.Clear();
 
         Assert.Equal(1, pool.ItemsAllocated);
         Assert.Equal(1, pool.ItemsAvailable);
