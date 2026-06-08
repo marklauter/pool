@@ -3,27 +3,71 @@ name: .NET Test
 on:
   push:
     branches: [ "main" ]
+    paths: [ "src/**", "tests/**", "Directory.Build.props", "Directory.Packages.props" ]
   pull_request:
     branches: [ "main" ]
+    paths: [ "src/**", "tests/**", "Directory.Build.props", "Directory.Packages.props" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  format:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 10.0.x
 
-    - name: Restore dependencies
-      working-directory: src
-      run: dotnet restore
-      
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Verify formatting
+      run: dotnet format "Pool.slnx" --severity info --verify-no-changes
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        configuration: [ Debug, Release ]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
     - name: Build
-      working-directory: src
-      run: dotnet build -c Debug --no-restore
-    
+      run: dotnet build "tests/Pool.Tests/Pool.Tests.csproj" -c ${{ matrix.configuration }}
+
     - name: Test
-      working-directory: src
-      run: dotnet test --no-build
+      run: dotnet test "tests/Pool.Tests/Pool.Tests.csproj" -c ${{ matrix.configuration }} --no-build
+
+    - name: Upload coverage report
+      if: always() && matrix.configuration == 'Debug'
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-cobertura
+        path: tests/Pool.Tests/coverage.cobertura.xml
+        if-no-files-found: error

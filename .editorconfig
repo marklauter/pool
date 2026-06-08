@@ -426,7 +426,7 @@ dotnet_diagnostic.CA3012.severity = warning
 dotnet_diagnostic.CA5394.severity = warning
 dotnet_diagnostic.CA2007.severity = none
 
-[tests/DynamoDbLite*.Tests/**.cs]
+[tests/Pool*.Tests/**.cs]
 dotnet_diagnostic.CA1307.severity = none
 dotnet_diagnostic.CA1515.severity = none
 dotnet_diagnostic.CA1812.severity = none
