@@ -13,6 +13,8 @@
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
 		<!-- Deferred: flip to true at the end of the joint warning review. -->
 		<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+		<!-- CA1873 avoid-potentially-expensive-logging-args : diagnostic log arguments are cheap value reads (counts, elapsed ms); the rule ships only in the newer SDK analyzer band so it flickers across environments — suppressed solution-wide for stable builds -->
+		<NoWarn>$(NoWarn);CA1873</NoWarn>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
@@ -20,8 +22,6 @@
 		<IsTestProject>true</IsTestProject>
 		<CollectCoverage>true</CollectCoverage>
 		<CoverletOutputFormat>cobertura</CoverletOutputFormat>
-		<!-- Scope coverage to the Pool production assembly only. -->
-		<Include>[Pool]*</Include>
 		<!-- Exception types are plumbing; exclude from coverage to avoid noise. -->
 		<Exclude>[*]*Exception</Exclude>
 		<!-- Source-generated files are plumbing too. -->
