@@ -166,6 +166,39 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     }
 
     [Fact]
+    public async Task Preparation_Failure_Discards_Item_And_Serves_Fresh_One()
+    {
+        var preparationStrategy = new ThrowOnceEchoPreparationStrategy();
+        var options = new PoolOptions
+        {
+            MinSize = 1,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, preparationStrategy, options);
+        Assert.Equal(1, pool.ItemsAllocated);
+
+        // the preparation failure propagates so the caller can retry the lease
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await pool.LeaseAsync(TestContext.Current.CancellationToken));
+
+        // the broken item was disposed and removed, not returned to the pool to poison the next leaser
+        Assert.NotNull(preparationStrategy.FailedItem);
+        Assert.True(preparationStrategy.FailedItem!.IsDisposed());
+        Assert.Equal(0, pool.ItemsAllocated);
+        Assert.Equal(0, pool.ItemsAvailable);
+
+        // the freed slot lets the next lease create and prepare a fresh item
+        var fresh = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        Assert.NotSame(preparationStrategy.FailedItem, fresh);
+        Assert.False(fresh.IsDisposed());
+        Assert.True(fresh.IsConnected);
+
+        pool.Release(fresh);
+    }
+
+    [Fact]
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP013:Await in using", Justification = "it's not")]
     public async Task Concurrent_Leases_Are_Handled()
     {
