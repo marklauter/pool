@@ -11,8 +11,7 @@
 		<IncludeSymbols>true</IncludeSymbols>
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
-		<!-- Deferred: flip to true at the end of the joint warning review. -->
-		<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 		<!-- CA1873 avoid-potentially-expensive-logging-args : diagnostic log arguments are cheap value reads (counts, elapsed ms); the rule ships only in the newer SDK analyzer band so it flickers across environments — suppressed solution-wide for stable builds -->
 		<NoWarn>$(NoWarn);CA1873</NoWarn>
 	</PropertyGroup>
@@ -26,8 +25,8 @@
 		<Exclude>[*]*Exception</Exclude>
 		<!-- Source-generated files are plumbing too. -->
 		<ExcludeByFile>**/obj/**/*.g.cs</ExcludeByFile>
-		<!-- Coverage ratchet scaffold: floors at 0 to start. Raise only — never lower — as coverage is measured. -->
-		<Threshold>0</Threshold>
+		<!-- Coverage ratchet: floors set below the measured 88.95/65.15/91.13 (line/branch/method). Raise only — never lower — as coverage is measured. -->
+		<Threshold>85,60,90</Threshold>
 		<ThresholdType>line,branch,method</ThresholdType>
 		<ThresholdStat>total</ThresholdStat>
 	</PropertyGroup>

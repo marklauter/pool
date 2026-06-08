@@ -12,7 +12,7 @@ public interface IPreparationStrategy<TPoolItem>
     /// </summary>
     /// <param name="item"></param>
     /// <param name="cancellationToken"></param>
-    /// <returns><see cref="Boolean"/> true if the pool item is ready.</returns>
+    /// <returns><see cref="bool"/> true if the pool item is ready.</returns>
     ValueTask<bool> IsReadyAsync(TPoolItem item, CancellationToken cancellationToken);
 
     /// <summary>

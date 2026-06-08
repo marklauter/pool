@@ -14,8 +14,8 @@ public sealed class PoolOptions
     /// <summary>
     /// MaxSize gets or sets the maximum number of items in the pool.
     /// </summary>
-    /// <remarks>Defaults to Int32.MaxValue</remarks>
-    public int MaxSize { get; set; } = Int32.MaxValue;
+    /// <remarks>Defaults to int.MaxValue</remarks>
+    public int MaxSize { get; set; } = int.MaxValue;
 
     /// <summary>
     /// LeaseTimeout gets or sets the timeout for leasing an item from the pool.

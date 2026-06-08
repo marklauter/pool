@@ -194,7 +194,7 @@ public sealed class Pool<TPoolItem>
 
         isPreparationRequired = preparationStrategy is not null;
         this.preparationStrategy = preparationStrategy;
-        maxSize = options?.MaxSize ?? Int32.MaxValue;
+        maxSize = options?.MaxSize ?? int.MaxValue;
         initialSize = Math.Min(options?.MinSize ?? 0, maxSize);
 
         leaseTimeout = options?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
@@ -494,7 +494,7 @@ public sealed class Pool<TPoolItem>
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Pool<TPoolItem> IsNotDisposed() => disposed
-        ? throw new ObjectDisposedException(nameof(Pool<TPoolItem>))
+        ? throw new ObjectDisposedException(nameof(Pool<>))
         : this;
 
     /// <inheritdoc/>
