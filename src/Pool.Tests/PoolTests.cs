@@ -90,8 +90,8 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     [Fact]
     public async Task Queued_Request_Timesout()
     {
-        var instance1 = await pool.LeaseAsync();
-        var instance2 = await pool.LeaseAsync();
+        var instance1 = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        var instance2 = await pool.LeaseAsync(TestContext.Current.CancellationToken);
         Assert.Equal(2, pool.ActiveLeases);
         try
         {
@@ -140,7 +140,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 
         var instance = await pool.LeaseAsync(CancellationToken.None);
         pool.Release(instance);
-        await Task.Delay(10);
+        await Task.Delay(10, TestContext.Current.CancellationToken);
         _ = await pool.LeaseAsync(CancellationToken.None);
 
         Assert.True(instance.IsDisposed());

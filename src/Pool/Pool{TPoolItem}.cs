@@ -125,6 +125,8 @@ public sealed class Pool<TPoolItem>
 
     private readonly ConcurrentQueue<PoolItem> pool;
     private readonly ConcurrentQueue<LeaseRequest> leaseRequests = new();
+    // guards itemsAllocated
+    private readonly Lock gate = new();
     private readonly int maxSize;
     private readonly int initialSize;
     private readonly bool isPreparationRequired;
@@ -314,7 +316,7 @@ public sealed class Pool<TPoolItem>
 
     private IEnumerable<TPoolItem> CreateItems(int count)
     {
-        lock (this)
+        lock (gate)
         {
             itemsAllocated = count;
         }
@@ -346,7 +348,7 @@ public sealed class Pool<TPoolItem>
     private bool TryCreateItem(out PoolItem item)
     {
         bool canCreate;
-        lock (this)
+        lock (gate)
         {
             canCreate = itemsAllocated < maxSize;
             if (!canCreate)
@@ -368,7 +370,7 @@ public sealed class Pool<TPoolItem>
         catch (Exception ex)
         {
             logger.LogError(ex, "{PoolName}.{MethodName} failure", PoolName, nameof(TryCreateItem));
-            lock (this)
+            lock (gate)
             {
                 --itemsAllocated;
             }
@@ -401,12 +403,12 @@ public sealed class Pool<TPoolItem>
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
     private void RemoveItem(TPoolItem item)
     {
-        lock (this)
+        lock (gate)
         {
             --itemsAllocated;
         }
 
-        logger.LogDebug("{PoolName}.{MethodName} removing idle item from pool, total allocated: {ItemsAllocated}", PoolName, nameof(RemoveItem), itemsAllocated);
+        logger.LogDebug("{PoolName}.{MethodName} removing item from pool, total allocated: {ItemsAllocated}", PoolName, nameof(RemoveItem), itemsAllocated);
         if (IsPoolItemDisposable)
         {
             (item as IDisposable)?.Dispose();
@@ -414,7 +416,7 @@ public sealed class Pool<TPoolItem>
     }
 
     /// <remarks>
-    /// releases pool item if the preparation fails
+    /// removes and disposes the pool item if preparation fails
     /// </remarks>
     private async ValueTask<TPoolItem> EnsurePreparedAsync(
         TPoolItem item,
@@ -451,9 +453,12 @@ public sealed class Pool<TPoolItem>
         }
         catch (Exception ex)
         {
-            Release(item);
-            metrics.RecordPreparationException(ex);
             logger.LogError(ex, "preparation failure");
+            // preparation failed, so the item is in an indeterminate state (e.g. a dropped socket).
+            // discard and dispose it rather than returning it to the pool, otherwise the same broken
+            // item would poison the next leaser. the caller is expected to retry the lease.
+            RemoveItem(item);
+            metrics.RecordPreparationException(ex);
             throw;
         }
     }

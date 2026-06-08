@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="../.gitignore" />
+    <File Path="../LICENSE" />
+    <File Path="../README.md" />
+    <File Path=".editorconfig" />
+  </Folder>
+  <Folder Name="/Solution Items/github/">
+    <File Path="../.github/copilot-instructions.md" />
+  </Folder>
+  <Folder Name="/Solution Items/github/workflows/">
+    <File Path="../.github/workflows/dotnet.publish.yml" />
+    <File Path="../.github/workflows/dotnet.tests.yml" />
+  </Folder>
+  <Project Path="Pool.Tests/Pool.Tests.csproj" />
+  <Project Path="Pool/Pool.csproj" />
+</Solution>

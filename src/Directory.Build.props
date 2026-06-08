@@ -1,0 +1,35 @@
+<Project>
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+		<AnalysisMode>all</AnalysisMode>
+		<AnalysisLevel>latest-all</AnalysisLevel>
+		<AnalysisModeSecurity>All</AnalysisModeSecurity>
+		<IncludeSymbols>true</IncludeSymbols>
+		<PublishRepositoryUrl>true</PublishRepositoryUrl>
+		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<!-- Deferred: flip to true at the end of the joint warning review. -->
+		<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+		<IsPackable>false</IsPackable>
+		<IsTestProject>true</IsTestProject>
+		<CollectCoverage>true</CollectCoverage>
+		<CoverletOutputFormat>cobertura</CoverletOutputFormat>
+		<!-- Scope coverage to the Pool production assembly only. -->
+		<Include>[Pool]*</Include>
+		<!-- Exception types are plumbing; exclude from coverage to avoid noise. -->
+		<Exclude>[*]*Exception</Exclude>
+		<!-- Source-generated files are plumbing too. -->
+		<ExcludeByFile>**/obj/**/*.g.cs</ExcludeByFile>
+		<!-- Coverage ratchet scaffold: floors at 0 to start. Raise only — never lower — as coverage is measured. -->
+		<Threshold>0</Threshold>
+		<ThresholdType>line,branch,method</ThresholdType>
+		<ThresholdStat>total</ThresholdStat>
+	</PropertyGroup>
+
+</Project>
