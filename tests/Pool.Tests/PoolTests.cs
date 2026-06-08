@@ -234,17 +234,70 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     }
 
     [Fact]
-    public async Task Clear_Clears_Pool()
+    public async Task Clear_Disposes_Idle_Items_And_Refills_With_Fresh_Ones()
     {
-        var instance = await pool.LeaseAsync(CancellationToken.None);
-        Assert.Equal(1, pool.ItemsAllocated);
+        var options = new PoolOptions
+        {
+            MinSize = 2,
+            MaxSize = 4,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
 
-        pool.Release(instance);
-        Assert.Equal(1, pool.ItemsAllocated);
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, options);
+
+        // lease the seeded items out and return them, so the pool holds known instances
+        var first = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        var second = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        pool.Release(first);
+        pool.Release(second);
+        Assert.Equal(2, pool.ItemsAvailable);
 
         pool.Clear();
 
-        Assert.Equal(1, pool.ItemsAllocated);
-        Assert.Equal(1, pool.ItemsAvailable);
+        // the old idle items are disposed, not recirculated
+        Assert.True(first.IsDisposed());
+        Assert.True(second.IsDisposed());
+
+        // the pool is refilled to MinSize with fresh, undisposed instances
+        Assert.Equal(2, pool.ItemsAllocated);
+        Assert.Equal(2, pool.ItemsAvailable);
+
+        var fresh = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        Assert.NotSame(first, fresh);
+        Assert.NotSame(second, fresh);
+        Assert.False(fresh.IsDisposed());
+
+        pool.Release(fresh);
+    }
+
+    [Fact]
+    public async Task Clear_Fulfills_Queued_Lease_Requests()
+    {
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 1,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, options);
+
+        // saturate the single slot, then queue a request that can't be filled immediately
+        var held = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        var queued = pool.LeaseAsync(TestContext.Current.CancellationToken).AsTask();
+        Assert.False(queued.IsCompleted);
+        Assert.Equal(1, pool.QueuedLeases);
+
+        // Clear creates a fresh batch and hands one to the waiting request
+        pool.Clear();
+
+        var served = await queued;
+        Assert.NotNull(served);
+        Assert.Equal(0, pool.QueuedLeases);
+
+        pool.Release(held);
+        pool.Release(served);
     }
 }
