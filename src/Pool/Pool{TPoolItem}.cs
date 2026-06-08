@@ -227,6 +227,7 @@ public sealed class Pool<TPoolItem>
     public ValueTask<TPoolItem> LeaseAsync() => LeaseAsync(CancellationToken.None);
 
     /// <inheritdoc/>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "the LeaseRequest is handed to the leaseRequests queue; it is disposed via TrySetResult/Cancel when fulfilled, or by Pool.Dispose — not within this scope")]
     public async ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
         using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(LeaseAsync), Guid.NewGuid());
@@ -245,13 +246,15 @@ public sealed class Pool<TPoolItem>
             }
 
             logger.LogInformation("no items available, queuing lease request. lease queue size: {QueuedLeases}", QueuedLeases);
-            // lease requests are pulled off the queue in the ReleaseAsync method
+            // lease requests are pulled off the queue in the Release method
             var leaseRequest = new LeaseRequest(leaseTimeout, cancellationToken);
             leaseRequests.Enqueue(leaseRequest);
 
+            // wait for a released item to be handed to this request, then record the true queue wait
+            var leased = await leaseRequest.Task;
             RecordLeaseWaitTime(timer);
             // returns item to queue on preparation failure
-            return await EnsurePreparedAsync(await leaseRequest.Task, cancellationToken);
+            return await EnsurePreparedAsync(leased, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -276,9 +279,11 @@ public sealed class Pool<TPoolItem>
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "the dequeued LeaseRequest is disposed via TrySetResult/Cancel when fulfilled or purged as expired, or by Pool.Dispose; ownership stays with the queue, not this scope")]
     public void Release(TPoolItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        _ = IsNotDisposed();
         using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(Release), Guid.NewGuid());
 
         logger.LogDebug("{PendingLeaseRequestCount}", leaseRequests.Count);
