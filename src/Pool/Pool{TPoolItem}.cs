@@ -303,30 +303,40 @@ public sealed class Pool<TPoolItem>
     }
 
     /// <inheritdoc/>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Clear()
     {
         using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(Clear), Guid.NewGuid());
 
-        IsNotDisposed().EnsureItemsDisposed();
+        // drain the idle queue (pool)
+        IsNotDisposed().DrainPoolAndDisposeItems();
+        var count = QueuedLeases > initialSize ? QueuedLeases : initialSize;
 
-        foreach (var item in CreateItems(QueuedLeases > initialSize ? QueuedLeases : initialSize))
+        // create a batch of warm items to fill the pool 
+        // and fulfill queued lease requests 
+        var items = CreateItems(count);
+
+        // push items onto the pool
+        // and fullfill queued lease requests.
+        foreach (var item in items)
         {
             Release(item);
         }
     }
 
-    private IEnumerable<TPoolItem> CreateItems(int count)
+    private List<TPoolItem> CreateItems(int count)
     {
         lock (gate)
         {
             itemsAllocated = count;
         }
 
+        var items = new List<TPoolItem>(count);
         for (var i = 0; i < count; i++)
         {
-            yield return itemFactory.CreateItem();
+            items.Add(itemFactory.CreateItem());
         }
+
+        return items;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -466,16 +476,14 @@ public sealed class Pool<TPoolItem>
     }
 
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
-    private void EnsureItemsDisposed()
+    private void DrainPoolAndDisposeItems()
     {
-        if (!IsPoolItemDisposable)
-        {
-            return;
-        }
-
         while (pool.TryDequeue(out var item))
         {
-            (item.Item as IDisposable)?.Dispose();
+            if (IsPoolItemDisposable)
+            {
+                (item.Item as IDisposable)?.Dispose();
+            }
         }
     }
 
@@ -492,13 +500,13 @@ public sealed class Pool<TPoolItem>
             return;
         }
 
+        disposed = true;
+
         while (leaseRequests.TryDequeue(out var leaseRequest))
         {
             leaseRequest.Dispose();
         }
 
-        EnsureItemsDisposed();
-
-        disposed = true;
+        DrainPoolAndDisposeItems();
     }
 }
