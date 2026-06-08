@@ -1,0 +1,7 @@
+# Normalize all text files to LF in the repository and check them out as LF
+# on every platform, regardless of each contributor's core.autocrlf setting.
+* text=auto eol=lf
+
+# Windows shell scripts must keep CRLF or they break.
+*.cmd text eol=crlf
+*.bat text eol=crlf
