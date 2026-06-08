@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+	<PropertyGroup>
+		<!-- Scope coverage to the Pool production assembly only. -->
+		<Include>[Pool]*</Include>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<PackageReference Include="Microsoft.NET.Test.Sdk" />
 		<PackageReference Include="xunit.v3" />
