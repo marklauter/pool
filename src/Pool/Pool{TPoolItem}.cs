@@ -8,6 +8,8 @@ using System.Runtime.CompilerServices;
 namespace Pool;
 
 /// <inheritdoc/>
+[SuppressMessage("Naming", "CA1724:TypeNamesShouldNotMatchNamespaces",
+    Justification = "Package, root namespace, and primary type are intentionally all named 'Pool' for API ergonomics (using Pool; new Pool<T>(...)). The type is generic, so it does not collide with the namespace in practice; renaming would break the published public API.")]
 public sealed class Pool<TPoolItem>
     : IPool<TPoolItem>
     where TPoolItem : class
