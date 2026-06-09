@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<!-- Sample project: demonstrates wiring MailKit's SmtpClient into the pool. Not published. -->
+		<IsPackable>false</IsPackable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- Versions are centralized in Directory.Packages.props (CPM). -->
+		<PackageReference Include="MailKit" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\..\src\Pool\Pool.csproj" />
+	</ItemGroup>
+
+</Project>
