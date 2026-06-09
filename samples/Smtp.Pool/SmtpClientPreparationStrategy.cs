@@ -31,7 +31,7 @@ internal sealed class SmtpClientPreparationStrategy(
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        await item.ConnectAsync(hostOptions.Host, hostOptions.Port, hostOptions.UseSsl, cancellationToken);
+        await item.ConnectAsync(hostOptions.Host, hostOptions.Port, hostOptions.Security, cancellationToken);
         await item.AuthenticateAsync(credentials.UserName, credentials.Password, cancellationToken);
     }
 

@@ -1,4 +1,5 @@
 using MailKit;
+using MailKit.Security;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -9,12 +10,13 @@ public sealed class SmtpClientPreparationStrategyTests
 {
     private const string Host = "smtp.example.test";
     private const int Port = 587;
+    private const SecureSocketOptions Security = SecureSocketOptions.StartTls;
     private const string UserName = "user";
     private const string Password = "pass";
 
     private static SmtpClientPreparationStrategy CreateStrategy() =>
         new(
-            Options.Create(new SmtpHostOptions { Host = Host, Port = Port, UseSsl = true }),
+            Options.Create(new SmtpHostOptions { Host = Host, Port = Port, Security = Security }),
             Options.Create(new SmtpClientCredentials { UserName = UserName, Password = Password }));
 
     [Fact]
@@ -81,7 +83,7 @@ public sealed class SmtpClientPreparationStrategyTests
 
         await CreateStrategy().PrepareAsync(transport, CancellationToken.None);
 
-        await transport.Received(1).ConnectAsync(Host, Port, true, Arg.Any<CancellationToken>());
+        await transport.Received(1).ConnectAsync(Host, Port, Security, Arg.Any<CancellationToken>());
         await transport.Received(1).AuthenticateAsync(UserName, Password, Arg.Any<CancellationToken>());
     }
 

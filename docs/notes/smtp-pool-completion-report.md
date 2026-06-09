@@ -54,7 +54,7 @@ The sample pools and *prepares* transports but offers no way to actually send ma
 ### 3. Security & authentication
 
 - **OAuth2 / modern auth.** Basic username+password is disabled by Google and Microsoft 365. Production needs `SaslMechanismOAuth2` with token acquisition + refresh; `SmtpClientCredentials` models basic auth only.
-- **TLS policy.** `ConnectAsync(host, port, bool useSsl, ...)` is coarse. Expose `SecureSocketOptions` (esp. `StartTls` for submission port 587) and a `ServerCertificateValidationCallback` (don't silently accept invalid certs in production).
+- **TLS policy.** *(Landed.)* `SmtpHostOptions` now carries `Security` (`SecureSocketOptions`, default `StartTls` on port 587) instead of a `UseSsl` bool, plus `RequireValidCertificate` / `CheckCertificateRevocation`. The factory is secure by default and only installs an accept-all `ServerCertificateValidationCallback` when validation is explicitly opted out (gated, with a justified CA5359 suppression). What remains: a *custom* validation callback (pinning / specific-thumbprint trust) rather than the all-or-nothing toggle.
 - **Secret handling.** Credentials in configuration are fine for a sample; production should bind from a secret store (Key Vault, user-secrets, env). Never log `AUTH` — MailKit's `ProtocolLogger` must redact.
 
 ### 4. Reliability & resilience

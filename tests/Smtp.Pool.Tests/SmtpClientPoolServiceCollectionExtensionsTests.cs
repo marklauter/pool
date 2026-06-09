@@ -13,6 +13,7 @@ public sealed class SmtpClientPoolServiceCollectionExtensionsTests
             {
                 ["SmtpHostOptions:Host"] = "smtp.example.test",
                 ["SmtpHostOptions:Port"] = "587",
+                ["SmtpHostOptions:Security"] = "StartTls",
                 ["SmtpClientCredentials:UserName"] = "user",
                 ["SmtpClientCredentials:Password"] = "pass",
                 ["PoolOptions:MaxSize"] = "4",
