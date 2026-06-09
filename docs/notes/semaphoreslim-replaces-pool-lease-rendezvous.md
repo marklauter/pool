@@ -3,6 +3,7 @@ title: SemaphoreSlim replaces the pool's hand-rolled lease/release rendezvous
 summary: Modeling pool capacity as a SemaphoreSlim plus one idle-item queue deletes the LeaseRequest/TCS machinery in Pool<TPoolItem> and removes the lost-wakeup and cancel/hand-off races by construction. The open decision is whether Clear keeps over-creating items to serve queued waiters.
 tags: [pool, concurrency, design, note, decision]
 created: 2026-06-08
+aliases: []
 document.status: complete
 ---
 
@@ -41,7 +42,7 @@ The entire `LeaseRequest` class (~120 lines including the waiter queue, the `Rel
 
 - I1 cannot occur — one queue, no second structure to fall out of sync with.
 - I7 cannot occur — no TCS to race a result against a cancel.
-- `false`-on-timeout vs throw-on-cancel lets the pool surface a distinct `TimeoutException` (today both arrive as `TaskCanceledException`; see `test-findings.md` I3).
+- `false`-on-timeout vs throw-on-cancel lets the pool surface a distinct `TimeoutException` (today both arrive as `TaskCanceledException`; see `pool-tests.findings.md` I3).
 
 ## the open decision (the only real fork)
 
@@ -88,7 +89,7 @@ Implemented as a production-only change. Locked decisions: strict-max `Semaphore
 - **Derived counters (bonus beyond the original ask):** `itemsAllocated` and its `Lock` are deleted — `ActiveLeases = maxSize - gate.CurrentCount`, `ItemsAvailable = pool.Count`, `ItemsAllocated` their sum. Counts can no longer desync from the items. `QueuedLeases` is the one explicit `Interlocked` counter (slow path only).
 - **`Clear` (condition 3):** disposes idle + reseeds to `min(MinSize, gate.CurrentCount)`; waiters served by returns. The old over-create-past-`maxSize` limitation (was findings I2) is gone by construction.
 - **I9 not fixed (review correction):** double/foreign `Release` is "no worse, occasionally louder" — the duplicate is enqueued before `gate.Release()`, which only throws `SemaphoreFullException` when already saturated. Left Open; needs per-item lease-identity tracking.
-- **Tests (condition 4):** the failing-first `Lease_Does_Not_Lose_Wakeups_Under_Concurrency` is red on the old rendezvous and green on the semaphore. Forced edits to two existing tests (`Lease_Queues_Request` reorder for the async hand-off; `Clear_Fulfills_Queued_Lease_Requests` → `Clear_Does_Not_Over_Allocate_For_Queued_Requests`). One lifecycle test added to restore branch coverage over the ratchet floor (disposed-guard + double-dispose, documented gaps in `test-findings.md`).
+- **Tests (condition 4):** the failing-first `Lease_Does_Not_Lose_Wakeups_Under_Concurrency` is red on the old rendezvous and green on the semaphore. Forced edits to two existing tests (`Lease_Queues_Request` reorder for the async hand-off; `Clear_Fulfills_Queued_Lease_Requests` → `Clear_Does_Not_Over_Allocate_For_Queued_Requests`). One lifecycle test added to restore branch coverage over the ratchet floor (disposed-guard + double-dispose, documented gaps in `pool-tests.findings.md`).
 - **Verification:** build-gate green (format, build, 28 tests, coverage 90.14/63.15/91.54 line/branch/method, floors 85/60/90).
 
 See [[docs/pool{t}.findings.md]] for the per-finding status.

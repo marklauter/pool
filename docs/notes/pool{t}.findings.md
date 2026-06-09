@@ -3,6 +3,7 @@ title: Pool<TPoolItem> Code Review — Findings & Suggestions
 summary: Correctness review of src/Pool/Pool{TPoolItem}.cs — concurrency races, item-count invariants, resource leaks on failure/disposal, and lifecycle guards. Tracks resolved items, the defined Clear contract, and what remains open.
 tags: [code-review, pool, note]
 created: 2026-06-08
+aliases: []
 document.status: resolved
 ---
 
@@ -13,7 +14,7 @@ document.status: resolved
 
 > The SemaphoreSlim redesign has landed (I1/I7 resolved; see Resolved). **Line numbers are approximate — anchor by symbol name.**
 
-> **Related:** the test-side review in [`test-findings.md`](./test-findings.md).
+> **Related:** the test-side review in [`pool-tests.findings.md`](./pool-tests.findings.md).
 
 ---
 
@@ -64,7 +65,7 @@ _None — all important findings are resolved._
 
 ## Minor / nits  *(line numbers approximate)*
 
-- **`DateTime.UtcNow` in `PoolItem`.** Not `TimeProvider`-based, so idle-timeout logic isn't deterministically testable (also flagged as `test-findings.md` M4).
+- **`DateTime.UtcNow` in `PoolItem`.** Not `TimeProvider`-based, so idle-timeout logic isn't deterministically testable (also flagged as `pool-tests.findings.md` M4).
 - **Derived counters are composite non-atomic reads.** `ActiveLeases` reads `gate.CurrentCount`, and `ItemsAllocated` adds `pool.Count`, read separately — so the counters can be transiently inconsistent under concurrency (e.g. `Release` enqueues before releasing the permit, so `ItemsAllocated` briefly over-counts by one). Metrics-only impact.
 - **Idle eviction is lazy only** (`TryDequeue` in `TryAcquireItem`). An item past `idleTimeout` is disposed only when someone next tries to dequeue it; nothing reaps idle items proactively.
 
