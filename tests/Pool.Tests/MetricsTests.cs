@@ -123,12 +123,10 @@ public sealed class MetricsTests
         var item = await pool.LeaseAsync(TestContext.Current.CancellationToken);
         pool.Release(item);
 
-        var waits = waitCollector.GetMeasurementSnapshot();
-        var preps = prepCollector.GetMeasurementSnapshot();
-        Assert.Equal(1, waits.Count);
-        Assert.Equal(1, preps.Count);
+        var wait = Assert.Single(waitCollector.GetMeasurementSnapshot());
+        var prep = Assert.Single(prepCollector.GetMeasurementSnapshot());
         // the lease-wait timer stops before preparation, so it captures none of the prep duration
-        Assert.Equal(0d, waits[0].Value, 3);
-        Assert.Equal(prepDuration.TotalMilliseconds, preps[0].Value, 3);
+        Assert.Equal(0d, wait.Value, 3);
+        Assert.Equal(prepDuration.TotalMilliseconds, prep.Value, 3);
     }
 }

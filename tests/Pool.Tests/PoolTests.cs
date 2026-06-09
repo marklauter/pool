@@ -556,7 +556,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics, PoolOptio
         await Parallel.ForEachAsync(
             Enumerable.Range(0, 5_000),
             new ParallelOptions { MaxDegreeOfParallelism = 16, CancellationToken = ct },
-            async (_, token) =>
+            async (i, token) =>
             {
                 var item = await pool.LeaseAsync(token);
                 if (!held.TryAdd(item, 0))
