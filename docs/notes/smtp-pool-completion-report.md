@@ -26,7 +26,7 @@ The sample was not merely out of the solution — it was deleted in `defd6cf` ("
 - `SmtpClientPreparationStrategy : IPreparationStrategy<IMailTransport>` — the split version from `32f2d9c`, options-bound.
 - `SmtpClientPoolServiceCollectionExtensions.AddSmtpClientPool(...)` — DI wiring against the **current** API (`AddPoolItemFactory`, `AddPreparationStrategy`, `AddPool<IMailTransport>`).
 
-The factory/strategy are `public` (a sample's implementation should be visible; also sidesteps CA1812). If you wanted a byte-faithful restore with the gaps left broken instead, say so and I'll swap.
+The factory/strategy are `internal sealed` behind the public `IItemFactory`/`IPreparationStrategy` interfaces (writing-csharp: *public interfaces, internal implementations*), wired through DI and exposed to the test project via `InternalsVisibleTo` — mirroring `Pool` → `Pool.Tests`. The CA1812 false positive (the analyzer can't see DI instantiation) is suppressed inline with justification. If you wanted a byte-faithful restore with the gaps left broken instead, say so and I'll swap.
 
 **Is a pool even the right pattern here?** Yes, decisively. MailKit's `SmtpClient` is **not thread-safe** — one instance may only run one operation at a time. The pool's exclusive-lease model gives each caller sole ownership of a connected, authenticated client for the duration of a lease, which is exactly the discipline `SmtpClient` requires. Connection reuse also amortizes the TCP + TLS + AUTH handshake, which is the dominant per-send cost.
 
@@ -72,13 +72,14 @@ The sample pools and *prepares* transports but offers no way to actually send ma
 
 ### 6. Testing
 
-An initial unit suite has **landed** in `tests/Smtp.Pool.Tests` (16 tests, xUnit v3 + NSubstitute), at 100% line/branch/method over the `Smtp.Pool` assembly:
+An initial suite has **landed** in `tests/Smtp.Pool.Tests` (21 tests, xUnit v3 + NSubstitute + ArchUnitNET), at 100% line/branch/method over the `Smtp.Pool` assembly:
 
 - `SmtpClientFactory` — returns an `SmtpClient`, applies `TimeoutMilliseconds`, null-guards its options.
 - `SmtpClientPreparationStrategy` — the full `IsReadyAsync` truth table (null / not-connected / not-authenticated / NOOP-throws / ready), `PrepareAsync` connect+authenticate with the configured values, and ctor null-guards — all against a faked `IMailTransport`.
 - `AddSmtpClientPool` — registers pool/factory/strategy, honors the configure override, null-guards `services`/`configuration`.
+- **Architecture** (`Architecture/ArchitectureTests.cs`, mirroring `Pool.Tests`) — types stay in the `Smtp.Pool` tree, concrete classes are sealed, no public instance fields, the factory/strategy implementations stay internal (locks in the public-interface/internal-impl decision), and the sample takes no ASP.NET Core dependency.
 
-Coverage is scoped to `[Smtp.Pool]*` with the ratchet started at `0,0,0` (raise as the sample grows). NSubstitute was added to CPM; the test-naming and `CA1515` (public test classes) carve-outs were centralized into the `.Tests`-gated section of `Directory.Build.props`. Still to do:
+Coverage is scoped to `[Smtp.Pool]*` with the ratchet started at `0,0,0` (raise as the sample grows). NSubstitute and ArchUnitNET are referenced via CPM; the test-naming and `CA1515` (public test classes) carve-outs were centralized into the `.Tests`-gated section of `Directory.Build.props`. Still to do:
 
 - **Behavioral regression**: a test pinning the half-open re-prepare bug from §1 — write it red first; it will pass once the reconnect guard lands.
 - **Integration**: against a containerized SMTP sink — `smtp4dev`, `Papercut`, or `MailHog` via `Testcontainers` — proving real connect/auth/send and reconnect-after-drop.
