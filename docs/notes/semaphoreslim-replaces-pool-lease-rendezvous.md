@@ -3,7 +3,7 @@ title: SemaphoreSlim replaces the pool's hand-rolled lease/release rendezvous
 summary: Modeling pool capacity as a SemaphoreSlim plus one idle-item queue deletes the LeaseRequest/TCS machinery in Pool<TPoolItem> and removes the lost-wakeup and cancel/hand-off races by construction. The open decision is whether Clear keeps over-creating items to serve queued waiters.
 tags: [pool, concurrency, design, note, decision]
 created: 2026-06-08
-document.status: resolved
+document.status: complete
 ---
 
 # SemaphoreSlim replaces the pool's hand-rolled lease/release rendezvous

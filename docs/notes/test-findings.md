@@ -3,8 +3,6 @@ title: Unit Test Review — Findings & Suggestions
 summary: Review of Pool.Tests for brittle tests, weak/missing assertions, framework-coupling, and behavior-vs-state gaps, with suggested fixes.
 tags: [test-review, note]
 created: 2026-06-08
-aliases: []
-document.status: draft
 ---
 
 # Unit Test Review — Findings & Suggestions
