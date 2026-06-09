@@ -1,402 +1,356 @@
-## Build Status
-[![.NET Test](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml)
+[![.NET Tests](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.tests.yml)
 [![.NET Publish](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml/badge.svg)](https://github.com/marklauter/pool/actions/workflows/dotnet.publish.yml)
-[![Nuget](https://img.shields.io/badge/Nuget-v6.0.0-blue)](https://www.nuget.org/packages/MSL.Pool/)
-[![Nuget](https://img.shields.io/badge/.NET-8.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0/)
+[![NuGet](https://img.shields.io/nuget/v/MSL.Pool?logo=nuget)](https://www.nuget.org/packages/MSL.Pool/)
+[![.NET](https://img.shields.io/badge/.NET-10.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/10.0/)
 
-## 
-![Pool Logo](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png "Pool Logo")
+![Pool](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png "Pool")
+![MSL Armory](https://raw.githubusercontent.com/marklauter/pool/main/images/msl.armory.small.png "MSL Armory")
 
 # Pool
-`IPool<TPoolItem>` is an object pool that uses the lease/release pattern.
-It allows for, but does not require, [custom preparation strategies](#pool-item-preparation-strategy).
-Common use cases for [preparation strategies](#pool-item-preparation-strategy) 
-include objects that benefit from long-lived connections, 
-like SMTP or database connections.
 
-## Github Repository
-[https://github.com/marklauter/pool](https://github.com/marklauter/pool)
+*Another weapon from the MSL Armory*
 
-## Nuget Package
-### Nuget.org Page
-[https://www.nuget.org/packages/MSL.Pool](https://www.nuget.org/packages/MSL.Pool)
-### Package Install
-```console
+`IPool<TPoolItem>` is a thread-safe object pool for expensive-to-create, reusable instances — connections, clients, sockets. It hands items out under a lease, takes them back on release, and caps how many exist at once.
+
+## Table of contents
+- [Pool](#pool)
+  - [Table of contents](#table-of-contents)
+  - [When to reach for Pool](#when-to-reach-for-pool)
+  - [Installation](#installation)
+  - [Hello, World](#hello-world)
+  - [How leasing works](#how-leasing-works)
+  - [Leasing and releasing](#leasing-and-releasing)
+  - [Footguns](#footguns)
+    - [Release exactly once](#release-exactly-once)
+    - [Never forget to release](#never-forget-to-release)
+    - [Dispose reclaims idle items only](#dispose-reclaims-idle-items-only)
+    - [Preparation failure discards the item](#preparation-failure-discards-the-item)
+  - [Configuration](#configuration)
+  - [Item factory](#item-factory)
+  - [Preparation strategy](#preparation-strategy)
+  - [Dependency injection](#dependency-injection)
+  - [Named pools](#named-pools)
+  - [Metrics](#metrics)
+  - [FAQ](#faq)
+
+## When to reach for Pool
+
+Reach for Pool when an object is expensive to create and safe to reuse, and you want a hard ceiling on how many exist at once:
+
+- Connection pools — SMTP, database, or any long-lived network connection
+- Clients that hold a socket or session and cost real time to construct
+- Bounded concurrency — `MaxSize` caps concurrent leases, so the pool doubles as a throttle
+- Items that idle out — a connection the server drops after inactivity, re-checked on each lease
+
+Skip Pool when the object is cheap to construct — allocate it directly. For stateless reset-and-reuse objects with no async readiness step, [`Microsoft.Extensions.ObjectPool`](https://learn.microsoft.com/aspnet/core/performance/objectpool) is lighter. For `HttpClient`, use `IHttpClientFactory`.
+
+## Installation
+
+```bash
 dotnet add package MSL.Pool
 ```
 
-## The Lease / Release Pattern
-When the pool is instantiated, it creates a minimum number of poolable items and places them in the available items queue.
+Pool targets .NET 10.
 
-When a lease is requested, the pool attempts to dequeue an item. 
-If an item is returned from the queue, the item is returned on a task.
-However, if the item queue is empty, the pool attempts to create a new item to fulfill the lease request.
-If the pool has reached its allocation limit, it enqueues a new lease request object into the lease request queue.
-Then it returns the least request's `TaskCompletionSource.Task` to the caller.
+## Hello, World
 
-The caller will block on await until an item is released back to the pool or until the lease request times out. 
-First, the release operation attempts to dequeue an active lease request.
-If a lease request is returned, the least request's task is completed with the item being released by the caller.
-But if the lease request queue is empty, the item will be placed in the available item queue.
+Register a pool, then lease and release items through `IPool<TPoolItem>`:
 
-## Pool
-`IPool<TPoolItem>` is implmented _internally_ by `Pool<TPoolItem>`.
-
-You can access `IPool<TPoolItem>` by registering it with the service collection by calling 
-one of the `IServiceCollection` extensions from the `Pool.DependencyInjection` namespace.
-See [Dependency Injection](#dependency-injection) for more information.
-
-`IPool<TPoolItem>` provides three methods with convenient overloads:
-- `LeaseAsync` - returns an item from the pool and optionally [performs a ready check](#pool-item-preparation-strategy)
-- `ReleaseAsync` - returns an item to the pool
-- `ClearAsync` - clears the pool, disposes of items as required, and reinitializes the pool with `PoolOptions.MinSize` items
-
-The caller is responsible for calling `ReleaseAsync` when it no longer needs the item.
-I recommend using try / finally.
 ```csharp
-var item = await pool.LeaseAsync();
-try
+using Pool;
+
+services.AddTransient<SmtpConnection>();   // the default factory resolves items from DI
+services.AddPool<SmtpConnection>(configuration, options =>
 {
-    item.DoStuff();
-}
-finally
+    options.MinSize = 2;                   // pre-create two on startup
+    options.MaxSize = 10;                  // never more than ten at once
+    options.UseDefaultFactory = true;      // construct items from the service provider
+});
+```
+
+Inject the pool and lease under a `try`/`finally`:
+
+```csharp
+public sealed class Mailer(IPool<SmtpConnection> pool)
 {
-    await pool.ReleaseAsync(item);
+    public async Task SendAsync(Message message)
+    {
+        var connection = await pool.LeaseAsync();
+        try
+        {
+            await connection.SendAsync(message);
+        }
+        finally
+        {
+            pool.Release(connection);      // always release, exactly once
+        }
+    }
 }
 ```
 
-`Pool<TPoolItem>` has three dependencies injected into the constructor:
-- `IItemFactory<TPoolItem>`
-- `IPreparationStrategy<TPoolItem>`
-- `PoolOptions`
+That's the whole contract: `LeaseAsync` to borrow, `Release` to return. The `finally` returns the item even when the work throws.
 
-See [Dependency Injection](#dependency-injection) for more information.
+## How leasing works
 
-The pool will use an [item factory](#pool-item-factory) to create new items as required.
-During the lease operation, the pool invokes a [ready checker](#pool-item-preparation-strategy) 
-to initialize an item that isn't ready.
+A pool holds a queue of idle items and a capacity gate — a `SemaphoreSlim` with one permit per unit of `MaxSize`. A lease takes a permit; a release returns one. Permits held equals items leased, so the leased count never exceeds `MaxSize`.
 
-## Pool Item Factory
-Implement the `IItemFactory<TPoolItem>` interface to create new items for the pool. 
-The library provides a default pool implementation that uses `IServiceProvider` to construct items.
-To use the default implementation, call `AddPool<TPoolItem>` or 
-`AddPoolWithDefaultFactory<TPoolItem, TPreparationStrategy>` 
-when registering the pool with the service collection.
-See [Dependency Injection](#dependency-injection) for more information.
+Every lease runs the same path:
 
-## Pool Item Preparation Strategy
-Implement the `IPreparationStrategy<TPoolItem>` interface to ensure an item is ready for use when leased from the pool.
+```text
+LeaseAsync
+   │
+   ├─ permit free? ──no──► wait for a release (up to LeaseTimeout) ──elapsed──► TaskCanceledException
+   │       │ yes
+   ▼       ▼
+ take a permit
+   │
+   ├─ idle item queued? ──yes──► reuse it (discard first if past IdleTimeout)
+   │                    ──no───► create one with the item factory
+   ▼
+ prepare the item (readiness check, if a strategy is registered)
+   │
+   ├─ ready ─────► hand it to the caller
+   └─ not ready ─► prepare; on failure dispose the item, release the permit, throw
+```
 
-There's a default `IPreparationStrategy<TPoolItem>` implementation that always returns 
-`true` from the `IsReadyAsync` method.
-To use the default implementation with a custom item factory, 
-call `AddPool<TPoolItem>` 
-when registering the pool with the service collection.
-See [Dependency Injection](#dependency-injection) for more information.
+When every permit is held, further leases wait in the semaphore's own queue until an item is released or `LeaseTimeout` elapses. That wait queue *is* the backlog — there's no separate waiter list to fall out of sync.
 
-Ready check is useful for items that may become inactive for some time, 
-such as an SMTP connection that has been idle long enough for the server to terminate
-the connection.
+## Leasing and releasing
 
-For example, if you're implementing an SMTP connection pool, 
-the lease operation can verify the connection to the STMP server 
-by invoking the SMTP `no-op`.  You can connect and authenticate to the SMTP server if the ready check fails. 
+`IPool<TPoolItem>` is the surface you inject — three methods and a few counters:
 
-Sample SMTP connection ready check implementation using `MailKit.IMailTransport`:
+- `LeaseAsync()` / `LeaseAsync(CancellationToken)` — borrow an item as a `ValueTask<TPoolItem>`. Reuses an idle item, creates one if the pool is below `MaxSize`, or waits for a release.
+- `Release(item)` — return a leased item. Synchronous and `void`. If a lease is waiting, the item goes to it; otherwise it becomes idle.
+- `Clear()` — dispose every idle item and refill to `MinSize`. Leased items are untouched and re-enter on release.
+
+Counters for diagnostics and metrics: `ItemsAllocated`, `ItemsAvailable`, `ActiveLeases`, `QueuedLeases`, and `Name`.
+
+`Release` is synchronous by design — returning an item is a queue enqueue and a permit release, neither of which awaits. Wrap every lease in `try`/`finally`:
+
+```csharp
+var item = await pool.LeaseAsync(cancellationToken);
+try
+{
+    // use the item
+}
+finally
+{
+    pool.Release(item);
+}
+```
+
+`LeaseAsync(cancellationToken)` cancels the wait. A canceled caller token throws `OperationCanceledException`; a lease that exceeds `LeaseTimeout` throws `TaskCanceledException`.
+
+## Footguns
+
+The lease/release contract is a balanced pair, and the pool trusts you to honor it. Like `ArrayPool<T>.Return`, it doesn't police misuse — these are the sharp edges.
+
+### Release exactly once
+
+The pool tracks no ownership. Releasing the same item twice — or releasing an item the pool never handed you — enqueues a duplicate, after which two callers can lease the *same* instance and corrupt each other's work. A double release also over-counts the capacity gate, letting the pool create past `MaxSize`, or throws `SemaphoreFullException` when the gate is already full. Release each leased item once, from a `finally`.
+
+### Never forget to release
+
+A lease that never returns holds its permit for the life of the pool. Leak `MaxSize` permits and the pool saturates: every later lease waits out the full `LeaseTimeout` and then throws. The `try`/`finally` is not optional.
+
+### Dispose reclaims idle items only
+
+Disposing the pool disposes the items sitting idle in it. Items leased out at that moment belong to the caller — the pool can't reclaim them, so dispose them yourself. Releasing an item to a disposed pool throws `ObjectDisposedException`, as does leasing from one.
+
+### Preparation failure discards the item
+
+When a registered preparation strategy throws, the pool disposes that item rather than recirculate a broken one, releases the permit, and rethrows. Catch the exception at the call site and retry the lease for a fresh item.
+
+## Configuration
+
+`PoolOptions` sets sizing, timeouts, and which defaults to register. Bind it from the `"PoolOptions"` configuration section, pass an `Action<PoolOptions>`, or both — the action runs after binding:
+
+```csharp
+services.AddPool<SmtpConnection>(configuration, options =>
+{
+    options.MinSize = 2;
+    options.MaxSize = 10;
+    options.LeaseTimeout = TimeSpan.FromSeconds(30);
+});
+```
+
+Options and their defaults:
+
+- `MinSize` — items created up front, and the floor `Clear()` refills to. Defaults to `0`.
+- `MaxSize` — hard cap on items in existence, and therefore on concurrent leases. At least `1`. Defaults to `100`.
+- `LeaseTimeout` — how long a lease waits for an item before throwing `TaskCanceledException`. Defaults to `Timeout.InfiniteTimeSpan` (wait forever).
+- `PreparationTimeout` — how long the readiness check and preparation may take. Defaults to `Timeout.InfiniteTimeSpan`.
+- `IdleTimeout` — how long an item may sit idle before the next lease discards and disposes it instead of reusing it. Eviction is lazy: it happens when a lease meets the stale item, not on a background timer. Defaults to `Timeout.InfiniteTimeSpan` (never expire).
+- `UseDefaultFactory` — register the default item factory, which resolves `TPoolItem` from the service provider. Defaults to `false`.
+- `UseDefaultPreparationStrategy` — register the default preparation strategy, which reports every item ready. Defaults to `false`.
+
+## Item factory
+
+The pool creates new items through `IItemFactory<TPoolItem>`:
+
+```csharp
+public interface IItemFactory<TPoolItem>
+    where TPoolItem : class
+{
+    TPoolItem CreateItem();
+}
+```
+
+Supply one two ways:
+
+- Set `UseDefaultFactory = true` to use the built-in factory. It resolves `TPoolItem` from the service provider, so register the item type as well: `services.AddTransient<SmtpConnection>()`.
+- Implement `IItemFactory<TPoolItem>` and register it with `AddPoolItemFactory<TPoolItem, TFactory>()` for construction the container can't express — credentials, endpoints, handcrafted state.
+
+## Preparation strategy
+
+A pooled item can go stale between leases — an SMTP server drops an idle connection, a token expires. `IPreparationStrategy<TPoolItem>` checks an item on lease and restores it when needed:
+
+```csharp
+public interface IPreparationStrategy<TPoolItem>
+    where TPoolItem : class
+{
+    ValueTask<bool> IsReadyAsync(TPoolItem item, CancellationToken cancellationToken);
+    Task PrepareAsync(TPoolItem item, CancellationToken cancellationToken);
+}
+```
+
+On each lease the pool calls `IsReadyAsync`; if it returns `false`, the pool calls `PrepareAsync` before handing the item over, bounded by `PreparationTimeout`. Register a strategy with `AddPreparationStrategy<TPoolItem, TStrategy>()`, or set `UseDefaultPreparationStrategy = true` for the built-in one that reports every item ready.
+
+An SMTP readiness check and preparation over `MailKit.IMailTransport`:
+
 ```csharp
 public async ValueTask<bool> IsReadyAsync(IMailTransport item, CancellationToken cancellationToken) =>
     item.IsConnected
     && item.IsAuthenticated
     && await NoOpAsync(item, cancellationToken);
-```
 
-Sample SMTP connection `PrepareAsync` implementation using `MailKit.IMailTransport`:
-```csharp
 public async Task PrepareAsync(IMailTransport item, CancellationToken cancellationToken)
 {
-    await item.ConnectAsync(hostOptions.Host, hostOptions.Port, hostOptions.UseSsl, cancellationToken);
+    await item.ConnectAsync(host.Name, host.Port, host.UseSsl, cancellationToken);
     await item.AuthenticateAsync(credentials.UserName, credentials.Password, cancellationToken);
 }
 ```
 
-## Dependency Injection
-The `ServiceCollectionExtensions` class is in the `Pool.DependencyInjection` namespace.
-- Call `AddPool<TPoolItem>` to register a singleton pool. Pass `Action<PoolRegistrationOptions>` to specify whether or not to register the default item factory and ready check implementations.
-- Call `AddPreparationStrategy<TPoolItem, TPreparationStrategy>` to register a singleton preparation strategy.
-- Call `AddPoolItemFactory<TPoolItem, TFactoryImplementation>` to register a singleton item factory implementation.
+If `PrepareAsync` throws, the pool disposes the item and rethrows — retry the lease for a fresh one.
 
-### Sample `AddPool<TPoolItem>` Registration
+## Dependency injection
+
+Every registration extension lives in the `Pool` namespace and registers singletons:
+
+- `AddPool<TPoolItem>(configuration, configureOptions)` — the pool, its options, and metrics. Also registers the default factory and preparation strategy when `UseDefaultFactory` / `UseDefaultPreparationStrategy` are set.
+- `AddPoolItemFactory<TPoolItem, TFactory>()` — a custom `IItemFactory<TPoolItem>`.
+- `AddPreparationStrategy<TPoolItem, TStrategy>()` — a custom `IPreparationStrategy<TPoolItem>`.
+- `AddDefaultPoolMetrics<TPoolItem>()` — the default metrics, when you build a pool without `AddPool`.
+
+A pool with a custom factory and strategy:
+
 ```csharp
-services.AddPool<IMailTransport>(configuration, options =>
-{
-    // use default factory, which uses the service provider to construct pool items
-    options.RegisterDefaultFactory = true;
-});
+services
+    .AddPoolItemFactory<SmtpConnection, SmtpConnectionFactory>()
+    .AddPreparationStrategy<SmtpConnection, SmtpReadyCheck>()
+    .AddPool<SmtpConnection>(configuration, options =>
+    {
+        options.MinSize = 2;
+        options.MaxSize = 10;
+    });
 ```
 
-## Pool Options
+## Named pools
 
-The `PoolOptions` class configures behavior of the pool. These options control pool sizing, timeouts, and factory selection.
-
-You can configure pool options:
-- When registering a pool with dependency injection
-- By creating a pool options instance and passing it to the pool constructor
-- Through configuration binding from appsettings.json
-
-### Available Options
-
-- `MinSize` - The minimum number of items to maintain in the pool
-  - This is the initial pool size when created
-  - Defaults to `0`
-
-- `MaxSize` - The maximum number of items the pool can create
-  - When reached, lease requests are queued until items are released
-  - Defaults to `Int32.MaxValue`
-
-- `LeaseTimeout` - The maximum time to wait when leasing an item from the pool
-  - When expired, lease throws a `TimeoutException`
-  - Defaults to `Timeout.InfiniteTimeSpan`
-
-- `PreparationTimeout` - The maximum time to wait for item preparation
-  - Controls timeout for ready checking and preparation
-  - Defaults to `Timeout.InfiniteTimeSpan`
-
-- `IdleTimeout` - The maximum time an item can remain idle in the pool
-  - Idle items exceeding this timeout are removed and disposed
-  - Defaults to `Timeout.InfiniteTimeSpan`
-
-- `UseDefaultPreparationStrategy` - Whether to use the default preparation strategy
-  - The default strategy always returns `true` from `IsReadyAsync`
-  - Defaults to `false`
-
-- `UseDefaultFactory` - Whether to use the default item factory
-  - The default factory uses the service provider to construct items
-  - Defaults to `false`
-
-### Sample Configuration
+Run several independently configured pools for one item type — a small read pool and a large write pool of the same connection. Register the pool factory once, then a named pool per configuration:
 
 ```csharp
-// Register with dependency injection through configuration
-services.AddPool<MyPoolItem>(configuration)
+services.AddPoolFactory<DbConnection>();
 
-// or through the configure options action
-services.AddPool<MyPoolItem>(configuration, options =>
+services.AddNamedPool<DbConnection>("ReadPool", configuration, options =>
+{
+    options.MinSize = 5;
+    options.MaxSize = 20;
+});
+
+services.AddNamedPool<DbConnection>("WritePool", configuration, options =>
 {
     options.MinSize = 2;
     options.MaxSize = 10;
 });
-
 ```
 
-## Named Pools
-
-Starting from March 2025, Pool supports creating multiple named instances of pools for the same item type. This allows you to configure different pools with different settings for the same type of item.
-
-### Why Use Named Pools?
-
-Named pools are useful when you need:
-- Different pool configurations for the same type (different min/max sizes, timeouts, etc.)
-- Dedicated pools for different use cases or components in your application
-- Isolating pool resources for different concerns
-
-### Using Named Pools
-
-#### Basic Named Pool Registration
-
-To register a named pool and its factory:
-
-**note: the name provided will be converted to a service key in the format `{name}.{typeof(TPoolItem).Name}.pool`**
+A named pool's key is `"{name}.{typeof(TPoolItem).Name}.Pool"`. Build it with `ServiceKey.Create<TPoolItem>(name)` rather than hand-formatting, then resolve through `IPoolFactory<TPoolItem>`:
 
 ```csharp
-// Add the pool factory
-services.AddPoolFactory<MyPoolItem>();
-
-// Add a named pool
-services.AddNamedPool<MyPoolItem>(
-    "ReadPool",
-    configuration,
-    options => 
-    {
-        options.MinSize = 5;
-        options.MaxSize = 20;
-        options.LeaseTimeout = TimeSpan.FromSeconds(30);
-    });
-
-// Add another named pool with different configuration
-services.AddNamedPool<MyPoolItem>(
-    "WritePool",
-    configuration,
-    options => 
-    {
-        options.MinSize = 2;
-        options.MaxSize = 10;
-        options.LeaseTimeout = TimeSpan.FromSeconds(60);
-    });
+public sealed class Repository(IPoolFactory<DbConnection> pools)
+{
+    private readonly IPool<DbConnection> readPool =
+        pools.CreatePool(ServiceKey.Create<DbConnection>("ReadPool"));
+    private readonly IPool<DbConnection> writePool =
+        pools.CreatePool(ServiceKey.Create<DbConnection>("WritePool"));
+}
 ```
 
-You can also register a typed client that will use a specific named pool:
+Each named pool also reads an optional per-pool section, `"{key}_PoolOptions"`, layered over the shared `"PoolOptions"` section.
+
+To bind a pool to a dedicated client type, register the client and its pool together. `AddPool<TPoolItem, TClient>` keys the pool by the client type and injects the `IPool<TPoolItem>` into the client's constructor:
 
 ```csharp
-// Register a pool with a typed client
-services.AddPool<MyPoolItem, MyPoolClient>(
-    configuration,
-    options => 
+services.AddPool<DbConnection, ReadClient>(configuration,
+    options =>
     {
         options.MinSize = 5;
         options.MaxSize = 20;
     },
-    client => 
+    client =>
     {
-        // Configure the pool client if needed
+        // configure the resolved client
     });
-```
-
-Inject the IPoolFactory<TPoolItem> into your class and create the pool you need:
-
-```csharp
-public class MyService
-{
-    private readonly IPool<MyPoolItem> readPool;
-    private readonly IPool<MyPoolItem> writePool;
-
-    public MyService(IPoolFactory<MyPoolItem> poolFactory)
-    {
-        readPool = poolFactory.CreatePool("ReadPool.MyPoolItem.pool");
-        writePool = poolFactory.CreatePool("WritePool.MyPoolItem.pool");
-    }
-
-    public async Task DoReadOperationAsync()
-    {
-        var item = await readPool.LeaseAsync();
-        try
-        {
-            // Use the item for read operations
-        }
-        finally
-        {
-            await readPool.ReleaseAsync(item);
-        }
-    }
-
-    public async Task DoWriteOperationAsync()
-    {
-        var item = await writePool.LeaseAsync();
-        try
-        {
-            // Use the item for write operations
-        }
-        finally
-        {
-            await writePool.ReleaseAsync(item);
-        }
-    }
-}
 ```
 
 ## Metrics
 
-`IPoolMetrics` provides a comprehensive metrics collection system for your pools, allowing you to monitor performance, diagnose issues, and optimize usage patterns. The Pool library includes a default implementation (`DefaultPoolMetrics`) that integrates with .NET's built-in metrics infrastructure.
+`AddPool` wires up `IPoolMetrics`, implemented by `DefaultPoolMetrics` over `System.Diagnostics.Metrics`. Each pool publishes under a meter named `Pool<TPoolItem>.PoolName` — `"{typeof(TPoolItem).Name}.Pool"`. The instruments:
 
-Metrics are named using the pattern `{poolName}.{metricName}` and include the following:
+- `lease_exception`, `preparation_exception` — counters of failed leases and failed preparations
+- `lease_wait_time`, `item_preparation_time` — histograms in milliseconds
+- `items_allocated`, `items_available`, `active_leases`, `queued_leases` — observable gauges of pool state
+- `utilization_rate` — active leases over allocated items
 
-### Counter Metrics
-- `{name}.lease_exception` - Tracks the number of exceptions thrown during pool item lease operations
-- `{name}.preparation_exception` - Tracks the number of exceptions thrown during pool item preparation
-
-### Histogram Metrics
-- `{name}.lease_wait_time` - Measures the time spent waiting to acquire a pool item (in milliseconds)
-- `{name}.item_preparation_time` - Measures the time spent preparing pool items before use (in milliseconds)
-
-### Observable Metrics
-- `{name}.items_allocated` - Tracks the total number of items allocated in the pool
-- `{name}.items_available` - Tracks the number of items currently available for lease
-- `{name}.active_leases` - Tracks the number of currently active leases
-- `{name}.queued_leases` - Tracks the number of lease requests waiting in the queue
-- `{name}.utilization_rate` - Monitors the pool utilization rate (active leases / total items)
-
-### Using Pool Metrics
-
-Pool metrics are automatically enabled when you register a pool with the service collection. The metrics can be consumed by any metrics collector that supports .NET's metrics API, such as OpenTelemetry, Prometheus, or custom exporters.
-
-Example of configuring OpenTelemetry to collect pool metrics:
+Collect them with any `System.Diagnostics.Metrics` listener — OpenTelemetry, `dotnet-counters`, a custom exporter — by adding the meter:
 
 ```csharp
 services.AddOpenTelemetry()
-    .WithMetrics(builder => builder
-        // Add your pool metrics to OpenTelemetry
+    .WithMetrics(metrics => metrics
         .AddMeter(Pool<MyPoolItem>.PoolName)
-        // Configure exporters as needed
         .AddPrometheusExporter());
 ```
 
-You can also create a custom metrics implementation by implementing the `IPoolMetrics` interface and registering it with the DI container:
+A named pool prefixes its meter with the pool name — `"{name}.{typeof(TPoolItem).Name}.Pool"` — so each instance reports separately:
 
 ```csharp
-services.AddPool<MyPoolItem>(configuration, options =>
-{
-    options.RegisterDefaultFactory = true;
-})
-.AddSingleton<IPoolMetrics, MyCustomPoolMetrics>();
+.AddMeter($"ReadPool.{Pool<DbConnection>.PoolName}")
+.AddMeter($"WritePool.{Pool<DbConnection>.PoolName}")
 ```
 
-### Using Metrics with Named Pools
-
-When working with named pools, each pool instance will have its own set of metrics with the name pattern `{poolName}.{poolItemType.Name}.Pool`. To collect metrics from named pools, you'll need to ensure you're adding the correct meter name to your metrics system.
-
-Example of configuring OpenTelemetry to collect metrics from a named pool:
+To replace the default, implement `IPoolMetrics` and register it before `AddPool` resolves its own:
 
 ```csharp
-// First, register your named pools
-
-services.AddNamedPool<DatabaseConnection>(
-    "ReadOnly",
-    configuration,
-    options => 
-    {
-        options.MinSize = 5;
-        options.MaxSize = 20;
-    });
-
-services.AddNamedPool<DatabaseConnection>(
-    "ReadWrite",
-    configuration,
-    options => 
-    {
-        options.MinSize = 2;
-        options.MaxSize = 10;
-    });
-
-services.AddOpenTelemetry()
-    .WithMetrics(builder => builder
-        // Add meters for the named pools
-        .AddMeter($"ReadOnly.{Pool<DatabaseConnection>.PoolName}")
-        .AddMeter($"ReadWrite.{Pool<DatabaseConnection>.PoolName}")
-        // Configure exporters as needed
-        .AddPrometheusExporter());
+services.AddSingleton<IPoolMetrics, MyPoolMetrics>();
 ```
 
-With this configuration, your metrics system will collect separate metrics for each named pool, allowing you to monitor and analyze the performance of individual pools independently.
+## FAQ
 
-Pool metrics can help you answer important questions about your pool's performance and health:
-- Is the pool sized appropriately for my workload?
-- Are items taking too long to prepare?
-- Are callers waiting too long to acquire items?
-- Is the pool under heavy load or running efficiently?
+**Why is `Release` synchronous when `LeaseAsync` is async?**
+Returning an item enqueues it and releases a permit — no I/O, nothing to await. Leasing may wait for a free permit or run an async readiness check, so it's the async half.
 
-Using these metrics, you can fine-tune your pool configuration for optimal performance in your specific scenarios.
+**What happens if I forget to release?**
+The permit stays held for the life of the pool. Leak `MaxSize` of them and every later lease waits out `LeaseTimeout` and throws. Always release from a `finally`.
 
-## Dev Log
-- 12 FEB 2024 - started SMTP pool at the end of 2023, but got busy with other stuff. I'll take it up again soon though because I need it for a work project.
-- 05 MAY 2024 - prepping the library for Nuget by supporting dotnet 6, 7 and 8.
-- 06 MAY 2024 - published to Nuget.
-- 17 MAY 2024 - added tests for out-of-order disposal scenarios.
-- 17 MAY 2024 - updated `readme.md`
-- 17 MAY 2024 - `Sample/Smtp.Pool` is still a work in progress.
-- 18 MAY 2024 :ALERT: breaking changes.
-- 18 MAY 2024 - refactored dependency injection extensions. 
-- 18 MAY 2024 - refactored to use ValueTask on LeaseAsync method. 
-- 16 JUL 2024 - better naming and cleaned up smtp sample project.
-- 17 JUL 2024 - added idle timeout
-- XX MAR 2025 - better lease timout handling
-- XX MAR 2025 - added metrics
-- 16 MAR 2025 - added named pools
+**Can the pool exceed `MaxSize`?**
+Not under correct use — the capacity gate guarantees it. A double release breaks that guarantee by over-counting the gate; see [Footguns](#footguns).
+
+**How do idle items get cleaned up?**
+Lazily. An item past `IdleTimeout` is disposed the next time a lease meets it in the queue, not on a background timer. `Clear()` disposes all idle items on demand.
+
+**Is the pool thread-safe?**
+Yes. Concurrent leases and releases are safe — the idle queue is a `ConcurrentQueue` and capacity is a `SemaphoreSlim`.
+
+**Which exception signals a lease timeout?**
+`TaskCanceledException` for an elapsed `LeaseTimeout`; `OperationCanceledException` for a canceled caller token.
