@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Pool.Metrics;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Pool;
@@ -167,7 +166,7 @@ public sealed class Pool<TPoolItem>
     {
         using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(LeaseAsync), Guid.NewGuid());
 
-        var timer = Stopwatch.StartNew();
+        var startTimestamp = timeProvider.GetTimestamp();
         try
         {
             ThrowIfDisposed();
@@ -183,8 +182,16 @@ public sealed class Pool<TPoolItem>
                 _ = Interlocked.Increment(ref queuedLeases);
                 try
                 {
-                    // one call subsumes the wait, the pool's lease timeout, and caller cancellation
-                    if (!await gate.WaitAsync(leaseTimeout, cancellationToken))
+                    // drive the lease timeout off timeProvider so it is deterministically testable.
+                    // SemaphoreSlim.WaitAsync has no TimeProvider overload, so a CTS(delay, timeProvider)
+                    // supplies the timeout, linked with the caller's token into a single wait token.
+                    using var timeoutCts = new CancellationTokenSource(leaseTimeout, timeProvider);
+                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+                    try
+                    {
+                        await gate.WaitAsync(linkedCts.Token);
+                    }
+                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                     {
                         // preserve the v6 contract: a lease timeout surfaces as TaskCanceledException
                         throw new TaskCanceledException();
@@ -203,7 +210,7 @@ public sealed class Pool<TPoolItem>
                 var item = TryAcquireItem();
                 // record the lease wait (acquire + queue wait) before preparation, so the metric
                 // excludes prep time — which RecordPreparationTime already captures separately
-                RecordLeaseWaitTime(timer);
+                RecordLeaseWaitTime(startTimestamp);
                 return await EnsurePreparedAsync(item, cancellationToken);
             }
             catch
@@ -215,23 +222,23 @@ public sealed class Pool<TPoolItem>
         }
         catch (Exception ex)
         {
-            RecordLeaseException(timer, ex);
+            RecordLeaseException(startTimestamp, ex);
             throw;
         }
     }
 
-    private void RecordLeaseException(Stopwatch timer, Exception ex)
+    private void RecordLeaseException(long startTimestamp, Exception ex)
     {
-        timer.Stop();
-        logger.LogError(ex, "lease failure after {ElapsedMs}ms", timer.ElapsedMilliseconds);
+        var elapsed = timeProvider.GetElapsedTime(startTimestamp);
+        logger.LogError(ex, "lease failure after {ElapsedMs}ms", elapsed.TotalMilliseconds);
         metrics.RecordLeaseException(ex);
     }
 
-    private void RecordLeaseWaitTime(Stopwatch timer)
+    private void RecordLeaseWaitTime(long startTimestamp)
     {
-        timer.Stop();
-        logger.LogDebug("lease completed in {ElapsedMs}ms", timer.ElapsedMilliseconds);
-        metrics.RecordLeaseWaitTime(timer.Elapsed);
+        var elapsed = timeProvider.GetElapsedTime(startTimestamp);
+        logger.LogDebug("lease completed in {ElapsedMs}ms", elapsed.TotalMilliseconds);
+        metrics.RecordLeaseWaitTime(elapsed);
     }
 
     /// <inheritdoc/>
@@ -326,8 +333,8 @@ public sealed class Pool<TPoolItem>
 
         try
         {
-            var timer = Stopwatch.StartNew();
-            using var timeoutCts = new CancellationTokenSource(preparationTimeout);
+            var startTimestamp = timeProvider.GetTimestamp();
+            using var timeoutCts = new CancellationTokenSource(preparationTimeout, timeProvider);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
             cancellationToken = linkedCts.Token;
 
@@ -340,9 +347,9 @@ public sealed class Pool<TPoolItem>
             logger.LogDebug("preparing item with timeout: {PreparationTimeoutMs}ms", preparationTimeout.TotalMilliseconds);
             await preparationStrategy.PrepareAsync(item, cancellationToken);
 
-            timer.Stop();
-            metrics.RecordPreparationTime(timer.Elapsed);
-            logger.LogDebug("item preparation completed in {ElapsedMs}ms", timer.ElapsedMilliseconds);
+            var elapsed = timeProvider.GetElapsedTime(startTimestamp);
+            metrics.RecordPreparationTime(elapsed);
+            logger.LogDebug("item preparation completed in {ElapsedMs}ms", elapsed.TotalMilliseconds);
             return item;
         }
         catch (Exception ex)

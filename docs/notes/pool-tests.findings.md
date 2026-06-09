@@ -63,15 +63,13 @@ Issue: the test leases, then re-runs `preparationStrategy.IsReadyAsync(instance,
 
 Fix: use a spy strategy that counts `PrepareAsync` invocations; assert exactly one call for an unprepared item and zero for an already-ready one.
 
-### M4 — production reads wall-clock; time is not injectable (idle portion resolved)
+### M4 — production reads wall-clock; time is not injectable — RESOLVED
 
-Where: production — ~~`Pool<TPoolItem>.PoolItem.IdleTime` (`DateTime.UtcNow`)~~ **resolved** and `EnsurePreparedAsync` (`new CancellationTokenSource(preparationTimeout)`) plus the lease wait (`gate.WaitAsync(leaseTimeout)`) **still wall-clock**. Tests — `Idle_Timeout_Removes_Items` and the timeout family.
+Where (was): production — `Pool<TPoolItem>.PoolItem.IdleTime` (`DateTime.UtcNow`), `EnsurePreparedAsync` (`new CancellationTokenSource(preparationTimeout)`), the lease wait (`gate.WaitAsync(leaseTimeout)`), and the `Stopwatch` lease/prep metric timers. Tests — `Idle_Timeout_Removes_Items` and the timeout family.
 
-Issue: time cannot be controlled from a test, so idle, lease, and preparation-timeout tests lean on real waits (`Task.Delay`, a real 10ms `LeaseTimeout`) — the classic CI flake. Also flagged production-side in [[docs/notes/pool{t}.findings.md]].
+Issue (was): time could not be controlled from a test, so idle, lease, and preparation-timeout tests leaned on real waits (`Task.Delay`, a real `LeaseTimeout`) — the classic CI flake. Also flagged production-side in [[docs/notes/pool{t}.findings.md]].
 
-Resolved (idle): `Pool<T>` now takes an optional `TimeProvider` (trailing ctor param, defaults to `TimeProvider.System`); `PoolItem` stamps `IdleSince` and is judged against `timeProvider.GetUtcNow()`, so idle eviction is deterministic. New test `Idle_Item_Past_Timeout_Is_Disposed_And_Fresh_One_Served` (`PoolTests.cs`) advances a `FakeTimeProvider` (`Microsoft.Extensions.TimeProvider.Testing`) instead of `Task.Delay`. The legacy zero-timeout `Idle_Timeout_Removes_Items` is left in place.
-
-Remaining: **preparation-timeout** can be closed the same way — `new CancellationTokenSource(preparationTimeout, timeProvider)` (the CTS has a `TimeProvider` overload) — not yet done. **Lease-timeout** is structurally stuck: `SemaphoreSlim.WaitAsync(timeout, ct)` has no `TimeProvider` hook, so a `FakeTimeProvider` cannot drive it without replacing the wait mechanism.
+Resolved: `Pool<T>` takes an optional `TimeProvider` (trailing ctor param, defaults to `TimeProvider.System`, contract unchanged). All clock reads route through it — idle stamping/eviction (`timeProvider.GetUtcNow()`, `IdleSince` now a `DateTimeOffset`), the lease timeout (`CancellationTokenSource(leaseTimeout, timeProvider)` linked with the caller's token, since `SemaphoreSlim.WaitAsync` has no `TimeProvider` overload; still surfaces `TaskCanceledException`), the preparation timeout (`CancellationTokenSource(preparationTimeout, timeProvider)`), and the metric timers (`GetTimestamp()`/`GetElapsedTime()` replacing `Stopwatch`). Deterministic `FakeTimeProvider` tests (`Microsoft.Extensions.TimeProvider.Testing`) replace the real waits: `Idle_Item_Past_Timeout_Is_Disposed_And_Fresh_One_Served`, `Lease_Times_Out_Deterministically_When_Capacity_Stays_Saturated`, `Preparation_Times_Out_Deterministically_When_Strategy_Stalls` (uses the `BlockingEchoPreparationStrategy` fake). The legacy zero-timeout `Idle_Timeout_Removes_Items` is left in place.
 
 ### M5 — `PoolItemFactory_Doesnt_Crash_On_Dispose` name/assertion mismatch
 

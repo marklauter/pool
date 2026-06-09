@@ -181,6 +181,63 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     }
 
     [Fact]
+    public async Task Lease_Times_Out_Deterministically_When_Capacity_Stays_Saturated()
+    {
+        // the lease timeout is now CTS-driven off timeProvider, so a FakeTimeProvider trips it with no real wait (M4)
+        var timeProvider = new FakeTimeProvider();
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 1,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+            LeaseTimeout = TimeSpan.FromSeconds(30),
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, options, timeProvider);
+
+        // hold the only permit so the next lease must queue and wait for the timeout
+        _ = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+
+        // LeaseAsync runs synchronously up to its WaitAsync, so the waiter is already parked with its timeout CTS created
+        var pending = pool.LeaseAsync(CancellationToken.None).AsTask();
+        Assert.Equal(1, pool.QueuedLeases);
+
+        timeProvider.Advance(TimeSpan.FromSeconds(31));
+
+        var exception = await Assert.ThrowsAsync<TaskCanceledException>(() => pending);
+        Assert.Contains("A task was canceled.", exception.Message);
+    }
+
+    [Fact]
+    public async Task Preparation_Times_Out_Deterministically_When_Strategy_Stalls()
+    {
+        // the preparation timeout is CTS-driven off timeProvider; a stalled strategy + FakeTimeProvider trips it (M4)
+        var timeProvider = new FakeTimeProvider();
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 1,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+            PreparationTimeout = TimeSpan.FromSeconds(30),
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, new BlockingEchoPreparationStrategy(), options, timeProvider);
+
+        // the lease acquires a permit and parks in PrepareAsync with its preparation-timeout CTS created
+        var pending = pool.LeaseAsync(CancellationToken.None).AsTask();
+
+        timeProvider.Advance(TimeSpan.FromSeconds(31));
+
+        _ = await Assert.ThrowsAsync<TaskCanceledException>(() => pending);
+
+        // the failed preparation disposed the item and released the permit, restoring capacity
+        Assert.Equal(0, pool.ActiveLeases);
+        Assert.Equal(0, pool.ItemsAvailable);
+    }
+
+    [Fact]
     public async Task Preparation_Strategy_Is_Applied()
     {
         var preparationStrategy = new EchoPreparationStrategy();
