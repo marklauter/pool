@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<!-- Integration tests assert real-server behavior over a containerized SMTP sink (Testcontainers),
-		     touching only a slice of the SUT; they exist to prove the real connect/auth/send path, not to
-		     drive coverage. Disable the inherited ratchet so the gate never fails on coverage this suite
-		     was never meant to chase. -->
+		<!-- Coverage is scoped to the sample. This suite exercises only the real connect/auth/send slice
+		     over a containerized SMTP sink, so its floors sit well below the unit suite's: set below the
+		     measured 70.05/39.28/79.41 (line/branch/method). Raise only — never lower — as the integration
+		     suite grows (e.g. STARTTLS and recycle-against-a-real-server scenarios). -->
 		<Include>[Smtp.Pool]*</Include>
-		<Threshold>0</Threshold>
+		<Threshold>65,35,75</Threshold>
 	</PropertyGroup>
 
 	<ItemGroup>
