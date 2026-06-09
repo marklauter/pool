@@ -45,9 +45,9 @@ public sealed class SmtpConnection : IDisposable
     /// </summary>
     internal bool ShouldRecycle(DateTimeOffset now) =>
         connectedAt is { } since
-        && ((options.MaxMessagesPerConnection > 0 && messageCount >= options.MaxMessagesPerConnection)
-            || (options.MaxConnectionLifetime > TimeSpan.Zero && now - since >= options.MaxConnectionLifetime)
-            || (options.MaxIdleLifetime > TimeSpan.Zero && now - lastActivityAt >= options.MaxIdleLifetime));
+        && (options.MaxMessagesPerConnection > 0 && messageCount >= options.MaxMessagesPerConnection
+            || options.MaxConnectionLifetime > TimeSpan.Zero && now - since >= options.MaxConnectionLifetime
+            || options.MaxIdleLifetime > TimeSpan.Zero && now - lastActivityAt >= options.MaxIdleLifetime);
 
     /// <summary>
     /// Sends a message over the leased connection. Lease from the pool, send, then release; the pool
