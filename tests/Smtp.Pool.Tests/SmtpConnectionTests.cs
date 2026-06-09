@@ -149,6 +149,36 @@ public sealed class SmtpConnectionTests
     }
 
     [Fact]
+    public async Task RecycleAsync_Replaces_The_Transport_Even_When_The_Quit_Fails()
+    {
+        var clock = new FakeTimeProvider();
+        var created = new List<IMailTransport>();
+        using var connection = CreateConnection(OnlyMessages(1), clock, created);
+        await connection.ConnectAsync(Host, CancellationToken.None);
+        _ = created[0].IsConnected.Returns(true);
+        _ = created[0].DisconnectAsync(true, Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("quit failed"));
+
+        await connection.RecycleAsync(CancellationToken.None); // best-effort QUIT failure must not abort the recycle
+
+        Assert.Equal(2, created.Count);
+        created[0].Received(1).Dispose();
+    }
+
+    [Fact]
+    public void Dispose_Disposes_The_Transport_Even_When_The_Quit_Fails()
+    {
+        var created = new List<IMailTransport>();
+        using (var connection = CreateConnection(OnlyMessages(1), new FakeTimeProvider(), created))
+        {
+            _ = created[0].IsConnected.Returns(true);
+            created[0].When(transport => transport.Disconnect(true, Arg.Any<CancellationToken>()))
+                .Do(_ => throw new IOException("quit failed"));
+        }
+
+        created[0].Received(1).Dispose(); // disposed despite the failed QUIT
+    }
+
+    [Fact]
     public async Task SendAsync_Forwards_To_The_Transport()
     {
         var clock = new FakeTimeProvider();

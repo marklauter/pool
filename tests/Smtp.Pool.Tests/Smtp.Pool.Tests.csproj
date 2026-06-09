@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<!-- Scope coverage to the Smtp.Pool sample assembly only. -->
 		<Include>[Smtp.Pool]*</Include>
-		<!-- Coverage ratchet: floors set below the measured 96.61/87.5/100 (line/branch/method). Raise only — never lower — as coverage grows. -->
+		<!-- Coverage ratchet: floors set below the measured 100/87.5/100 (line/branch/method). Raise only — never lower — as coverage grows. -->
 		<Threshold>95,85,95</Threshold>
 	</PropertyGroup>
 
