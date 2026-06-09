@@ -3,8 +3,7 @@ title: Pool<TPoolItem> Code Review — Findings & Suggestions
 summary: Correctness review of src/Pool/Pool{TPoolItem}.cs — concurrency races, item-count invariants, resource leaks on failure/disposal, and lifecycle guards. Tracks resolved items, the defined Clear contract, and what remains open.
 tags: [code-review, pool, note]
 created: 2026-06-08
-aliases: []
-document.status: draft
+document.status: resolved
 ---
 
 # Pool<TPoolItem> Code Review — Findings & Suggestions
