@@ -18,15 +18,19 @@ The sample was not merely out of the solution — it was deleted in `defd6cf` ("
 - **Solution**: added to `Pool.slnx` between `Pool` and `Pool.Tests`.
 - **Build**: `dotnet build Pool.slnx` → 0 warnings / 0 errors; `dotnet format --verify-no-changes` clean.
 
-**Restore decision (flag for review):** the last committed state (`32f2d9c`) had no `IItemFactory` — it had been dropped as "dead code" one commit earlier — so a faithful 3-class restore cannot compile under the strict ruleset (CA1812, and a pool with no factory can't construct clients). I restored the last state **plus** the minimum coherent wiring to make it a real, buildable skeleton:
+The sample was first restored as a minimal `IPool<IMailTransport>` skeleton, then evolved into the real design below. The pool now leases a **`SmtpConnection`** wrapper, not a raw transport — a stable pooled identity around a **replaceable** `IMailTransport`. That one move is what makes per-connection lifetime limits and recycling expressible (see §4) without changing the `Pool` library.
 
-- `SmtpHostOptions`, `SmtpClientCredentials` — restored, with `[Required]`/`[Range]` validation.
-- `SmtpClientOptions` — restored (was empty); now carries a used `TimeoutMilliseconds`.
-- `SmtpClientFactory : IItemFactory<IMailTransport>` — re-added (creates a configured `SmtpClient`).
-- `SmtpClientPreparationStrategy : IPreparationStrategy<IMailTransport>` — the split version from `32f2d9c`, options-bound.
-- `SmtpClientPoolServiceCollectionExtensions.AddSmtpClientPool(...)` — DI wiring against the **current** API (`AddPoolItemFactory`, `AddPreparationStrategy`, `AddPool<IMailTransport>`).
+Current shape (all `internal sealed` behind the public `AddSmtpClientPool` extension, except the public `SmtpConnection` lease type and the options):
 
-The factory/strategy are `internal sealed` behind the public `IItemFactory`/`IPreparationStrategy` interfaces (writing-csharp: *public interfaces, internal implementations*), wired through DI and exposed to the test project via `InternalsVisibleTo` — mirroring `Pool` → `Pool.Tests`. The CA1812 false positive (the analyzer can't see DI instantiation) is suppressed inline with justification. If you wanted a byte-faithful restore with the gaps left broken instead, say so and I'll swap.
+- `SmtpHostOptions` — endpoint + TLS: `Host`/`Port`/`Security` (`SecureSocketOptions`) + certificate policy, validated.
+- `SmtpClientCredentials` — basic-auth user/password, validated.
+- `SmtpClientOptions` — socket timeout + the three recycle limits (`MaxConnectionLifetime`, `MaxIdleLifetime`, `MaxMessagesPerConnection`) and the `ProbeAfter` NOOP-throttle window.
+- `SmtpConnection : IDisposable` (public) — wraps a replaceable transport; tracks age / idle / message-count off an injected `TimeProvider`; `ShouldRecycle(now)` is the "whichever comes first" decision; exposes `SendAsync(MimeMessage)`; recycles and gracefully QUITs.
+- `SmtpConnectionFactory : IItemFactory<SmtpConnection>` — pure (no I/O) construction; builds configured transports (timeout + cert policy).
+- `SmtpReadyCheck : IPreparationStrategy<SmtpConnection>` — ages out / reconnects in the preparation step.
+- `SmtpClientPoolServiceCollectionExtensions.AddSmtpClientPool(...)` — DI wiring (`AddPoolItemFactory`, `AddPreparationStrategy`, `AddPool<SmtpConnection>`, `TimeProvider`).
+
+Implementations are exposed to the test project via `InternalsVisibleTo` (mirroring `Pool` → `Pool.Tests`); the CA1812 false positive (the analyzer can't see DI instantiation) is suppressed inline with justification.
 
 **Is a pool even the right pattern here?** Yes, decisively. MailKit's `SmtpClient` is **not thread-safe** — one instance may only run one operation at a time. The pool's exclusive-lease model gives each caller sole ownership of a connected, authenticated client for the duration of a lease, which is exactly the discipline `SmtpClient` requires. Connection reuse also amortizes the TCP + TLS + AUTH handshake, which is the dominant per-send cost.
 
@@ -34,22 +38,17 @@ The factory/strategy are `internal sealed` behind the public `IItemFactory`/`IPr
 
 ## Gap analysis
 
-### 1. Correctness bugs in the restored prepare path (must-fix)
+### 1. Correctness of the prepare path
 
-These exist in the code as restored — they were latent in the original WIP and are real:
+- **Half-open reconnect.** *(Landed.)* `SmtpReadyCheck.PrepareAsync` recycles an aged-out connection, else `DisconnectAsync(quit: false)` on a still-`IsConnected` (half-open) one before reconnecting — so it never calls `ConnectAsync` on an already-connected client (which MailKit throws on). The `PrepareAsync_Disconnects_Half_Open_Before_Reconnecting` test pins it.
+- **Graceful QUIT.** *(Landed, at the wrapper.)* `SmtpConnection.Dispose()` and `RecycleAsync` do a best-effort `Disconnect(quit: true)` before disposing the transport, so the server sees a clean QUIT rather than a dropped socket. An async teardown hook in the Pool library would still be cleaner (sync `Disconnect` in `Dispose` blocks the pool's dispose path) — see §7.
+- **Auth still assumed mandatory.** `PrepareAsync` always authenticates; an internal relay / port-25 MTA that wants no auth would fail. Still to do: make auth conditional (ties into the OAuth/`ISmtpAuthenticator` work in §3).
 
-- **Double-connect / double-auth throw.** `PrepareAsync` calls `ConnectAsync` then `AuthenticateAsync` unconditionally. MailKit throws `InvalidOperationException` if the client is **already connected** or **already authenticated**. This fires whenever `IsReadyAsync` returns false on a *half-open* client (e.g. `IsConnected == true` but the NOOP probe failed): the pool then calls `PrepareAsync`, which re-connects an already-connected client and throws. Fix: guard — `if (item.IsConnected) await item.DisconnectAsync(quit: false, ct);` before connecting, and only authenticate when `!item.IsAuthenticated`.
-- **No graceful QUIT on eviction.** The pool disposes idle/evicted items via `IDisposable.Dispose()`. `SmtpClient.Dispose()` does **not** send SMTP `QUIT`; the server sees an abrupt socket drop. Production wants `DisconnectAsync(quit: true)` before disposal — but the Pool API has no teardown hook to do this (see §7).
-- **Auth assumed mandatory.** `PrepareAsync` always authenticates; an internal relay / port-25 MTA that wants no auth would fail. Make auth conditional on credentials being present.
+### 2. The send surface
 
-### 2. The send surface is entirely missing (headline gap)
-
-The sample pools and *prepares* transports but offers no way to actually send mail. A near-production sample needs:
-
-- A **MimeKit** dependency (`MimeMessage` is the unit you send; add to CPM).
-- A typed client — e.g. `PooledSmtpSender` — exposing `Task SendAsync(MimeMessage, CancellationToken)` that leases a client, sends, and releases in a `finally`. Register it with the named-pool overload `AddPool<IMailTransport, PooledSmtpSender>(...)`.
-- A **lease scope guard** (`await using` handle that auto-releases). `IPool.Release` is manual; a single forgotten release permanently shrinks the pool. A disposable lease handle is the safest consumer ergonomic.
-- Send-result handling: catch `SmtpCommandException` (inspect `StatusCode` / `ErrorCode`) and `SmtpProtocolException`; classify 4xx (transient, retry) vs 5xx (permanent, fail) vs auth errors (recycle).
+- **A send path exists.** *(Landed.)* **MimeKit** is on CPM, and `SmtpConnection.SendAsync(MimeMessage, CancellationToken)` sends over the leased connection and counts the message toward the recycle limit. A consumer injects `IPool<SmtpConnection>`, leases, sends, and releases (the README's own pattern).
+- **Typed client + lease scope.** *(Still to do.)* A `PooledSmtpSender` that leases/sends/releases in a `finally`, plus an `await using` lease-scope guard, so a forgotten manual `Release` can't permanently shrink the pool. Register via the `AddPool<SmtpConnection, PooledSmtpSender>` overload.
+- **Send-result handling.** *(Still to do.)* Catch `SmtpCommandException` (inspect `StatusCode` / `ErrorCode`) and `SmtpProtocolException`; classify 4xx (transient, retry) vs 5xx (permanent, fail) vs auth errors (recycle), and flag the connection broken so the next `IsReadyAsync` reconnects.
 
 ### 3. Security & authentication
 
@@ -59,10 +58,10 @@ The sample pools and *prepares* transports but offers no way to actually send ma
 
 ### 4. Reliability & resilience
 
-- **Transient-fault retry.** Wrap connect/auth (and send) in Polly retry-with-backoff; respect SMTP greylisting (4xx) by retrying, but never retry hard 5xx.
-- **Connection recycling.** Providers cap messages-per-connection and connection age. Need a "max uses / max lifetime then recycle" policy. The Pool has no per-item use-count or lifetime cap today (see §7).
-- **NOOP probe cost.** `IsReadyAsync` does a NOOP round-trip on **every** lease — correct for liveness, but it adds latency under high throughput. Consider making the probe optional or skipping it when the client was used within the last N seconds, leaning on send-time reconnect instead.
-- **Backpressure.** Set a finite `PoolOptions.LeaseTimeout` and surface saturation clearly instead of waiting forever (the default is infinite).
+- **Connection recycling.** *(Landed.)* `SmtpConnection` tracks the three limits real servers enforce — total age, idle time, and messages sent — and `ShouldRecycle` ages out on whichever comes first; `SmtpReadyCheck` reconnects a fresh transport on the next lease. Each limit has deterministic `FakeTimeProvider` coverage. Limits are configurable per `SmtpClientOptions` and individually disablable (zero = no limit).
+- **NOOP probe cost.** *(Landed.)* `IsReadyAsync` skips the NOOP round-trip when the connection was used within `ProbeAfter`, and only probes a connection that has been idle longer — so the common hot-path lease pays no extra round-trip.
+- **Transient-fault retry.** *(Still to do.)* Wrap connect/auth (and send) in Polly retry-with-backoff; respect SMTP greylisting (4xx) by retrying, but never retry hard 5xx. A connection-level failure before the `250` is safe to retry on a fresh connection; a 5xx command rejection is not.
+- **Backpressure.** *(Still to do.)* Set a finite `PoolOptions.LeaseTimeout` and surface saturation clearly instead of waiting forever (the default is infinite).
 
 ### 5. Observability
 
@@ -72,28 +71,28 @@ The sample pools and *prepares* transports but offers no way to actually send ma
 
 ### 6. Testing
 
-An initial suite has **landed** in `tests/Smtp.Pool.Tests` (21 tests, xUnit v3 + NSubstitute + ArchUnitNET), at 100% line/branch/method over the `Smtp.Pool` assembly:
+A suite has **landed** in `tests/Smtp.Pool.Tests` (41 tests, xUnit v3 + NSubstitute + ArchUnitNET + `FakeTimeProvider`), green over the `Smtp.Pool` assembly:
 
-- `SmtpClientFactory` — returns an `SmtpClient`, applies `TimeoutMilliseconds`, null-guards its options.
-- `SmtpClientPreparationStrategy` — the full `IsReadyAsync` truth table (null / not-connected / not-authenticated / NOOP-throws / ready), `PrepareAsync` connect+authenticate with the configured values, and ctor null-guards — all against a faked `IMailTransport`.
-- `AddSmtpClientPool` — registers pool/factory/strategy, honors the configure override, null-guards `services`/`configuration`.
-- **Architecture** (`Architecture/ArchitectureTests.cs`, mirroring `Pool.Tests`) — types stay in the `Smtp.Pool` tree, concrete classes are sealed, no public instance fields, the factory/strategy implementations stay internal (locks in the public-interface/internal-impl decision), and the sample takes no ASP.NET Core dependency.
+- `SmtpConnection` — each recycle limit isolated and proven deterministically (messages, total age, idle), "whichever comes first", idle-clock reset on activity, `RecycleAsync` quits+disposes+replaces the transport, graceful-QUIT `Dispose`, NOOP ping success/failure, and ctor null-guards — all against a faked `IMailTransport` + `FakeTimeProvider`.
+- `SmtpReadyCheck` — the `IsReadyAsync` truth table (not-connected / not-authenticated / aged-out / probe-when-idle / probe-fails / ready-recently-used) and `PrepareAsync` fresh-connect, half-open-disconnect, and aged-out-recycle paths.
+- `SmtpConnectionFactory` — returns a connection, the transport carries the configured timeout, certificate policy secure-by-default and relaxed-when-opted-out, ctor null-guards.
+- `AddSmtpClientPool` — registers pool/factory/strategy/`TimeProvider`, honors the configure override, null-guards.
+- **Architecture** (`Architecture/ArchitectureTests.cs`, mirroring `Pool.Tests`) — types stay in the `Smtp.Pool` tree, concrete classes are sealed, no public instance fields, the `IItemFactory`/`IPreparationStrategy` implementations stay internal, and the sample takes no ASP.NET Core dependency.
 
-Coverage is scoped to `[Smtp.Pool]*` with the ratchet started at `0,0,0` (raise as the sample grows). NSubstitute and ArchUnitNET are referenced via CPM; the test-naming and `CA1515` (public test classes) carve-outs were centralized into the `.Tests`-gated section of `Directory.Build.props`. Still to do:
+Coverage is scoped to `[Smtp.Pool]*` with the ratchet started at `0,0,0` (raise as the sample grows). NSubstitute, ArchUnitNET, and `Microsoft.Extensions.TimeProvider.Testing` are referenced via CPM; the test-naming and `CA1515` (public test classes) carve-outs are centralized in the `.Tests`-gated section of `Directory.Build.props`. Still to do:
 
-- **Behavioral regression**: a test pinning the half-open re-prepare bug from §1 — write it red first; it will pass once the reconnect guard lands.
 - **Integration**: against a containerized SMTP sink — `smtp4dev`, `Papercut`, or `MailHog` via `Testcontainers` — proving real connect/auth/send and reconnect-after-drop.
-- **Concurrency**: prove exclusive use (no client handed to two leasers mid-send) under parallel load.
+- **Concurrency**: prove exclusive use (no connection handed to two leasers mid-send) under parallel load.
 
 ### 7. Pool-library hooks the SMTP case surfaces (most valuable findings)
 
-The SMTP use case exposes three genuine gaps in the **Pool library** itself, not just the sample:
+The SMTP case pushed on three areas of the **Pool library**. The `SmtpConnection` wrapper mitigates all three at the sample level, but each would be cleaner as a first-class library feature reusable by any connection-oriented resource (SMTP, DB, gRPC):
 
-1. **No item teardown/destroy hook.** `IItemFactory` creates; nothing on the factory/strategy runs at eviction. There is no way to gracefully `DisconnectAsync(quit: true)` an SMTP client before the pool disposes it. A `ValueTask DestroyAsync(TPoolItem)` (or an `IDisposalStrategy<T>`) would close this for any connection-oriented resource (SMTP, DB, gRPC).
-2. **No recycle policy (max uses / max lifetime).** Cannot honor server message-per-connection caps or rotate aged connections. A per-item use counter + max-age, checked at release/lease, would be reusable across all pooled resources.
-3. **Probe-on-every-lease is unconditional.** `IsReadyAsync` always runs; no throttle/skip window. Fine for the library to keep it simple, but worth a configurable hook for latency-sensitive callers.
+1. **No item teardown/destroy hook.** The pool disposes items via synchronous `IDisposable.Dispose()`; there is no async teardown. *Mitigation:* the wrapper does a best-effort sync `Disconnect(quit: true)` in `Dispose`. *Library win:* a `ValueTask DestroyAsync(TPoolItem)` (or `IDisposalStrategy<T>`) would allow an async graceful QUIT without blocking the dispose path.
+2. **No recycle policy (max uses / max lifetime).** *Mitigation:* the wrapper tracks age/idle/count and the strategy ages items out in `IsReadyAsync`/`PrepareAsync`. *Library win:* a built-in per-item use-count + max-age policy would spare every pooled-resource author from re-implementing it.
+3. **Probe-on-every-lease.** *Mitigation:* the strategy throttles its own NOOP via `ProbeAfter`. *Library win:* a configurable readiness-throttle window would standardize it.
 
-These are arguably worth their own issues against the Pool library — the SMTP sample is the forcing function that makes the need concrete.
+The wrapper is the forcing function that makes these concrete — each is arguably worth its own issue against the Pool library.
 
 ---
 
@@ -101,12 +100,15 @@ These are arguably worth their own issues against the Pool library — the SMTP 
 
 | Phase | Scope | Effort |
 |---|---|---|
-| **P0 — Correctness** | Fix `PrepareAsync` reconnect guards (§1); make auth optional | ~0.5 day |
-| **P1 — Make it send** | MimeKit dep, `PooledSmtpSender` typed client, lease-scope guard, send-error classification (§2) | ~1 day |
-| **P2 — Tests** | Unit suite (faked transport) **landed**; add the §1 regression test, integration (smtp4dev/Testcontainers), concurrency (§6) | ~1 day remaining |
-| **P3 — Security** | `SecureSocketOptions` + cert callback; OAuth2 SASL; secret-store binding (§3) | ~1.5 days |
-| **P4 — Resilience** | Polly retry, connection recycling, finite lease timeout, NOOP-probe tuning (§4) | ~1 day |
-| **P5 — Observability** | App-level SMTP metrics + structured logging + OTel (§5) | ~0.5 day |
-| **P6 — Library hooks** | Teardown hook + recycle policy in the Pool library, then graceful QUIT in the sample (§7) | ~2 days (library + sample) |
+| Phase | Scope | Status |
+|---|---|---|
+| **P0 — Correctness** | `PrepareAsync` reconnect guards, graceful QUIT (§1) | **Landed** (auth-optional remains) |
+| **P1 — Send path** | MimeKit + `SmtpConnection.SendAsync` (§2) | **Landed**; typed sender + lease scope + error classification remain (~1 day) |
+| **P2 — Recycling** | Three-limit wrapper + age-out strategy, `TimeProvider` (§4) | **Landed** |
+| **P3 — Tests** | Wrapper/strategy/factory unit suite, 41 tests (§6) | **Landed**; integration (smtp4dev) + concurrency remain (~1 day) |
+| **P4 — Security** | `SecureSocketOptions` + cert policy (§3) | **Landed**; OAuth2 SASL + secret-store + custom cert callback remain (~1.5 days) |
+| **P5 — Resilience** | Polly retry, finite lease timeout (§4) | To do (~1 day) |
+| **P6 — Observability** | App-level SMTP metrics + structured logging + OTel (§5) | To do (~0.5 day) |
+| **P7 — Library hooks** | Teardown hook + recycle policy + probe-throttle in the Pool library (§7) | To do (~2 days; sample already mitigates) |
 
-P0–P2 yield a correct, tested, genuinely usable sample. P3–P5 make it production-credible. P6 is the deeper library work the SMTP case justifies.
+The sample is now a correct, tested, genuinely usable connection pool with real lifetime management. The remaining work (typed sender, OAuth2, retry, observability, integration tests) makes it production-credible; the library hooks are the deeper reusable wins the SMTP case justifies.

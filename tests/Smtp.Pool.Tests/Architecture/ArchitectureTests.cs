@@ -50,10 +50,10 @@ public sealed class ArchitectureTests
             .That()
             .HaveNameEndingWith("Factory")
             .Or()
-            .HaveNameEndingWith("PreparationStrategy")
+            .HaveNameEndingWith("ReadyCheck")
             .Should()
             .NotBePublic()
-            .Because("writing-csharp: public interfaces, internal implementations — the factory and preparation strategy are wired through DI, never referenced directly."));
+            .Because("writing-csharp: public interfaces, internal implementations — the IItemFactory and IPreparationStrategy implementations are wired through DI, never referenced directly."));
 
     [Fact]
     public void SampleDoesNotDependOnAspNetCore() =>

@@ -1,18 +1,19 @@
-using MailKit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pool;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Smtp.Pool;
 
 /// <summary>
-/// Registration helpers that wire MailKit's SMTP client into the object pool.
+/// Registration helpers that wire MailKit's SMTP client into the object pool as a recyclable
+/// <see cref="SmtpConnection"/>.
 /// </summary>
 public static class SmtpClientPoolServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers an <see cref="IPool{TPoolItem}"/> of <see cref="IMailTransport"/> backed by MailKit's
+    /// Registers an <see cref="IPool{TPoolItem}"/> of <see cref="SmtpConnection"/> backed by MailKit's
     /// SmtpClient, binding host, credential, client, and pool options from configuration.
     /// </summary>
     /// <param name="services">The service collection.</param>
@@ -45,9 +46,11 @@ public static class SmtpClientPoolServiceCollectionExtensions
             .AddOptions<SmtpClientOptions>()
             .Bind(configuration.GetSection(nameof(SmtpClientOptions)));
 
+        services.TryAddSingleton(TimeProvider.System);
+
         return services
-            .AddPoolItemFactory<IMailTransport, SmtpClientFactory>()
-            .AddPreparationStrategy<IMailTransport, SmtpClientPreparationStrategy>()
-            .AddPool<IMailTransport>(configuration, configureOptions);
+            .AddPoolItemFactory<SmtpConnection, SmtpConnectionFactory>()
+            .AddPreparationStrategy<SmtpConnection, SmtpReadyCheck>()
+            .AddPool<SmtpConnection>(configuration, configureOptions);
     }
 }

@@ -1,4 +1,3 @@
-using MailKit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Pool;
@@ -27,9 +26,10 @@ public sealed class SmtpClientPoolServiceCollectionExtensionsTests
 
         _ = services.AddSmtpClientPool(BuildConfiguration());
 
-        Assert.Contains(services, d => d.ServiceType == typeof(IPool<IMailTransport>));
-        Assert.Contains(services, d => d.ServiceType == typeof(IItemFactory<IMailTransport>));
-        Assert.Contains(services, d => d.ServiceType == typeof(IPreparationStrategy<IMailTransport>));
+        Assert.Contains(services, d => d.ServiceType == typeof(IPool<SmtpConnection>));
+        Assert.Contains(services, d => d.ServiceType == typeof(IItemFactory<SmtpConnection>));
+        Assert.Contains(services, d => d.ServiceType == typeof(IPreparationStrategy<SmtpConnection>));
+        Assert.Contains(services, d => d.ServiceType == typeof(TimeProvider));
     }
 
     [Fact]

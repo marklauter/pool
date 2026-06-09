@@ -7,22 +7,28 @@ using System.Diagnostics.CodeAnalysis;
 namespace Smtp.Pool;
 
 /// <summary>
-/// Creates the pooled <see cref="IMailTransport"/> instances and applies construction-time settings —
-/// socket timeout and certificate policy. The pool owns each created client and disposes it when the
-/// item is evicted or the pool is disposed.
+/// Creates pooled <see cref="SmtpConnection"/> instances. Construction is pure — no I/O — so the
+/// expensive connect/authenticate work happens later in the preparation strategy. Each transport the
+/// connection creates (initially and on recycle) carries the configured socket timeout and certificate policy.
 /// </summary>
 [SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Instantiated by the DI container via AddPoolItemFactory in SmtpClientPoolServiceCollectionExtensions.")]
-internal sealed class SmtpClientFactory(
+internal sealed class SmtpConnectionFactory(
     IOptions<SmtpClientOptions> clientOptions,
-    IOptions<SmtpHostOptions> hostOptions)
-    : IItemFactory<IMailTransport>
+    IOptions<SmtpHostOptions> hostOptions,
+    TimeProvider timeProvider)
+    : IItemFactory<SmtpConnection>
 {
     private readonly SmtpClientOptions clientOptions = clientOptions?.Value
         ?? throw new ArgumentNullException(nameof(clientOptions));
     private readonly SmtpHostOptions hostOptions = hostOptions?.Value
         ?? throw new ArgumentNullException(nameof(hostOptions));
+    private readonly TimeProvider timeProvider = timeProvider
+        ?? throw new ArgumentNullException(nameof(timeProvider));
 
-    public IMailTransport CreateItem()
+    public SmtpConnection CreateItem() => new(CreateTransport, clientOptions, timeProvider);
+
+    // internal so the connection's recycle path and the unit tests can build a configured transport.
+    internal IMailTransport CreateTransport()
     {
         var client = new SmtpClient
         {
@@ -38,8 +44,6 @@ internal sealed class SmtpClientFactory(
         return client;
     }
 
-    // Secure by default: only when the operator opts out of validation do we install an accept-all
-    // callback. Gated and justified so the security analyzer stays on everywhere else.
     [SuppressMessage("Security", "CA5359:Do not disable certificate validation", Justification = "Opt-in, development-only acceptance of self-signed certificates, gated behind RequireValidCertificate = false.")]
     private static void AcceptInvalidCertificates(SmtpClient client) =>
         client.ServerCertificateValidationCallback = static (_, _, _, _) => true;
