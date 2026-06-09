@@ -27,6 +27,9 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     public void Backlog_Is_Empty() => Assert.Equal(0, pool.QueuedLeases);
 
     [Fact]
+    public void Name_Is_TypeName_Dot_Pool() => Assert.Equal("IEcho.Pool", pool.Name);
+
+    [Fact]
     public async Task Lease_And_Release()
     {
         Assert.Equal(0, pool.ActiveLeases);
@@ -59,12 +62,14 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 
         pool.Release(instance1);
         Assert.Equal(2, pool.ActiveLeases);
-        Assert.Equal(0, pool.ItemsAvailable);
-        Assert.Equal(0, pool.QueuedLeases);
-        Assert.True(task.IsCompleted);
 
+        // releasing the permit wakes the queued waiter, but SemaphoreSlim resumes it on the thread
+        // pool, so the item dequeue and the QueuedLeases decrement land only once the hand-off is awaited
         var instance3 = await task;
         Assert.NotNull(instance3);
+        Assert.Equal(2, pool.ActiveLeases);
+        Assert.Equal(0, pool.ItemsAvailable);
+        Assert.Equal(0, pool.QueuedLeases);
 
         pool.Release(instance3);
         Assert.Equal(1, pool.ActiveLeases);
@@ -234,6 +239,72 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     }
 
     [Fact]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP013:Await in using", Justification = "it's not")]
+    public async Task Lease_Does_Not_Lose_Wakeups_Under_Concurrency()
+    {
+        // Regression test for the lost-wakeup race (findings I1).
+        //
+        // A lost wakeup only hangs under quiescence: a waiter is enqueued just after a release
+        // dropped its item into the idle pool without seeing the waiter, and no further release
+        // follows to heal it. Continuous churn hides the bug (the next release serves the stuck
+        // waiter), so this provokes the race in isolation: hold the single slot, then release it
+        // and start a waiter *simultaneously* (a Barrier aligns the two threads) so they collide
+        // in LeaseAsync's check-then-enqueue window. With nothing else to heal a lost wakeup, the
+        // waiter blocks until LeaseTimeout and throws TaskCanceledException -> the test goes red on
+        // the racy implementation and green on the SemaphoreSlim rendezvous.
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 1,
+            LeaseTimeout = TimeSpan.FromSeconds(2),
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
+
+        using var pool = new Pool<IEcho>(
+            new EchoFactory(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Pool<IEcho>>.Instance,
+            metrics,
+            new EchoPreparationStrategy(),
+            options);
+
+        var ct = TestContext.Current.CancellationToken;
+        const int iterations = 2000;
+        for (var i = 0; i < iterations; i++)
+        {
+            // occupy the only slot so the waiter below must queue
+            var held = await pool.LeaseAsync(ct);
+
+            // align two threads so Release and the queuing lease collide in the check-then-enqueue window
+            var ready = new int[1];
+            void Align()
+            {
+                _ = Interlocked.Increment(ref ready[0]);
+                SpinWait.SpinUntil(() => Volatile.Read(ref ready[0]) >= 2);
+            }
+
+            var releaseTask = Task.Run(() =>
+            {
+                Align();
+                pool.Release(held);
+            }, ct);
+            var waiterTask = Task.Run(() =>
+            {
+                Align();
+                return pool.LeaseAsync(ct).AsTask();
+            }, ct);
+
+            // if the wakeup is lost the waiter never completes and this throws TaskCanceledException
+            var served = await waiterTask;
+            await releaseTask;
+
+            Assert.NotNull(served);
+            Assert.False(served.IsDisposed());
+            pool.Release(served);
+        }
+    }
+
+    [Fact]
     public async Task Clear_Disposes_Idle_Items_And_Refills_With_Fresh_Ones()
     {
         var options = new PoolOptions
@@ -272,7 +343,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     }
 
     [Fact]
-    public async Task Clear_Fulfills_Queued_Lease_Requests()
+    public async Task Clear_Does_Not_Over_Allocate_For_Queued_Requests()
     {
         var options = new PoolOptions
         {
@@ -290,14 +361,90 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
         Assert.False(queued.IsCompleted);
         Assert.Equal(1, pool.QueuedLeases);
 
-        // Clear creates a fresh batch and hands one to the waiting request
+        // strict-max: Clear cannot manufacture an item past MaxSize to hand to the waiter, so the
+        // waiter stays queued and the pool does not over-allocate
         pool.Clear();
+        Assert.False(queued.IsCompleted);
+        Assert.Equal(1, pool.QueuedLeases);
+        Assert.Equal(1, pool.ActiveLeases);
 
+        // releasing the held lease is what serves the waiter
+        pool.Release(held);
         var served = await queued;
         Assert.NotNull(served);
         Assert.Equal(0, pool.QueuedLeases);
 
-        pool.Release(held);
         pool.Release(served);
+    }
+
+    [Fact]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP013:Await in using", Justification = "it's not")]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP016:Don't use disposed instance", Justification = "the test deliberately exercises post-dispose rejection")]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP017:Prefer using", Justification = "the test deliberately calls Dispose to verify idempotency and post-dispose rejection")]
+    public async Task Disposed_Pool_Rejects_Operations_And_Tolerates_Double_Dispose()
+    {
+        var options = new PoolOptions
+        {
+            MinSize = 1,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, options);
+        var item = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+
+        pool.Dispose();
+        pool.Dispose(); // idempotent: a second dispose is a no-op, not a throw
+
+        _ = Assert.Throws<ObjectDisposedException>(() => pool.Release(item));
+        _ = Assert.Throws<ObjectDisposedException>(pool.Clear);
+        _ = await Assert.ThrowsAsync<ObjectDisposedException>(
+            async () => await pool.LeaseAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP013:Await in using", Justification = "it's not")]
+    public async Task Utilization_Rate_Observer_Reports_Active_Over_Allocated()
+    {
+        // capture the observer the pool registers and invoke it directly, exercising both arms of
+        // the utilization lambda (ItemsAllocated == 0 ? 0 : ActiveLeases / ItemsAllocated)
+        var capturingMetrics = new CapturingPoolMetrics();
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 2,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, capturingMetrics, options);
+        Assert.NotNull(capturingMetrics.UtilizationRate);
+
+        // empty pool: ItemsAllocated == 0 -> utilization is 0
+        Assert.Equal(0d, capturingMetrics.UtilizationRate!());
+
+        // one item leased of one allocated -> ActiveLeases / ItemsAllocated == 1.0
+        var item = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(1d, capturingMetrics.UtilizationRate!());
+
+        pool.Release(item);
+    }
+
+    // captures the utilization observer so a test can invoke the registered lambda directly,
+    // without standing up a Meter / MetricCollector
+    private sealed class CapturingPoolMetrics : IPoolMetrics
+    {
+        public Func<double>? UtilizationRate { get; private set; }
+
+        public void RegisterUtilizationRateObserver(Func<double> observeValue) => UtilizationRate = observeValue;
+
+        public void RegisterItemsAllocatedObserver(Func<int> observeValue) { }
+        public void RegisterItemsAvailableObserver(Func<int> observeValue) { }
+        public void RegisterActiveLeasesObserver(Func<int> observeValue) { }
+        public void RegisterQueuedLeasesObserver(Func<int> observeValue) { }
+        public void RecordLeaseException(Exception ex) { }
+        public void RecordPreparationException(Exception ex) { }
+        public void RecordLeaseWaitTime(TimeSpan duration) { }
+        public void RecordPreparationTime(TimeSpan duration) { }
     }
 }

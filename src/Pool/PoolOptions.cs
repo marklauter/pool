@@ -1,4 +1,6 @@
-﻿namespace Pool;
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace Pool;
 
 /// <summary>
 /// PoolOptions for configuring the pool.
@@ -8,14 +10,16 @@ public sealed class PoolOptions
     /// <summary>
     /// MinSize gets or sets the minimum number of items in the pool.
     /// </summary>
-    /// <remarks>Defaults to zero.</remarks>
+    /// <remarks>Defaults to zero. Must not be negative.</remarks>
+    [Range(0, int.MaxValue)]
     public int MinSize { get; set; }
 
     /// <summary>
-    /// MaxSize gets or sets the maximum number of items in the pool.
+    /// MaxSize gets or sets the maximum number of items in the pool — a hard cap on concurrent leases.
     /// </summary>
-    /// <remarks>Defaults to int.MaxValue</remarks>
-    public int MaxSize { get; set; } = int.MaxValue;
+    /// <remarks>Defaults to 100. Must be at least 1. Set to <see cref="int.MaxValue"/> for an effectively unbounded pool.</remarks>
+    [Range(1, int.MaxValue)]
+    public int MaxSize { get; set; } = 100;
 
     /// <summary>
     /// LeaseTimeout gets or sets the timeout for leasing an item from the pool.

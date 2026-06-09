@@ -9,10 +9,10 @@ document.status: draft
 
 # Pool<TPoolItem> Code Review — Findings & Suggestions
 
-**Scope:** `src/Pool/Pool{TPoolItem}.cs` — the `Pool<TPoolItem>` implementation, its private `LeaseRequest`, and the `PoolItem` record struct.
+**Scope:** `src/Pool/Pool{TPoolItem}.cs` — the `Pool<TPoolItem>` implementation (now a `SemaphoreSlim` capacity gate plus one idle `ConcurrentQueue`) and the `PoolItem` record struct.
 **Reviewed against:** `IPool<TPoolItem>`, `PoolOptions`, `IItemFactory<T>`, `IPreparationStrategy<T>`, `IPoolMetrics`.
 
-> ⚠️ **File is under active edit** (warnings cleanup + ongoing redesign). **Line numbers are approximate — anchor by symbol name.**
+> The SemaphoreSlim redesign has landed (I1/I7 resolved; see Resolved). **Line numbers are approximate — anchor by symbol name.**
 
 > **Related:** the test-side review in [`test-findings.md`](./test-findings.md).
 
@@ -20,66 +20,56 @@ document.status: draft
 
 ## Resolved
 
-- **Preparation-failure poison item.** `EnsurePreparedAsync` previously returned a failed item to the pool via `Release(item)`, recirculating a broken item (e.g. a dropped MailKit SMTP socket). Now it calls `RemoveItem(item)` (dispose + decrement) and rethrows. Regression test `Preparation_Failure_Discards_Item_And_Serves_Fresh_One`.
-  - **Root cause:** introduced in `0f6e53d "fixed resource leak on preparation failure"` (2025-09-22). Before it the catch had *no* cleanup, so the item leaked (the leak that commit set out to fix); the fix added `Release(item)` where `RemoveItem(item)` was correct, trading the leak for poison-recirculation. The prep path never worked correctly — it leaked before `0f6e53d` and poisoned after. Not a `Remove`→`Release` swap; a `nothing`→`Release` choice of the wrong cleanup verb.
-- **I3 — `Clear()` now drains non-disposable pools.** `EnsureItemsDisposed` → renamed `DrainPoolAndDisposeItems`, and the `!IsPoolItemDisposable` branch now drains the queue unconditionally (disposing only the disposable items) instead of early-returning. `Clear`/`Dispose` empty the pool for non-disposable `T` too.
-- **I5 — `Release()` use-after-dispose.** `Release` now opens with `_ = IsNotDisposed();`, so a release after `Dispose()` throws `ObjectDisposedException` instead of silently leaking into a drained pool — consistent with `LeaseAsync`/`Clear`.
+- **Preparation-failure poison item.** `EnsurePreparedAsync` previously returned a failed item to the pool via `Release(item)`, recirculating a broken item (e.g. a dropped MailKit SMTP socket). Now it calls `DisposeItem(item)` and rethrows; the held permit is released by `LeaseAsync`'s catch (`_ = gate.Release()`), so there is no count to decrement (the counters are derived). Regression test `Preparation_Failure_Discards_Item_And_Serves_Fresh_One`.
+  - **Root cause:** introduced in `0f6e53d "fixed resource leak on preparation failure"` (2025-09-22). Before it the catch had *no* cleanup, so the item leaked (the leak that commit set out to fix); the fix added `Release(item)` where a dispose-and-discard (today's `DisposeItem(item)`) was correct, trading the leak for poison-recirculation. The prep path never worked correctly — it leaked before `0f6e53d` and poisoned after. Not a discard→`Release` swap; a `nothing`→`Release` choice of the wrong cleanup verb.
+- **I3 — `Clear()` now drains non-disposable pools.** `EnsureItemsDisposed` → renamed `DrainPoolAndDisposeItems`, which now unconditionally dequeues the whole queue and routes each item through `DisposeItem` (which itself no-ops the actual dispose for non-disposable `T`) — there is no longer a `!IsPoolItemDisposable` early-return. `Clear`/`Dispose` empty the pool for non-disposable `T` too.
+- **I5 — `Release()` use-after-dispose.** `Release` now opens with `ThrowIfDisposed();`, so a release after `Dispose()` throws `ObjectDisposedException` instead of silently leaking into a drained pool — consistent with `LeaseAsync`/`Clear`.
 - **I6 — disposal ordering.** `Dispose()` now sets `disposed = true` **first**, before draining waiters and the pool, narrowing the teardown race.
 - **I8 — lease-wait metric timing.** The queued path now `await`s the hand-off, *then* calls `RecordLeaseWaitTime`, so the metric captures the real queue wait rather than only the time up to enqueue.
+- **I1 (lost-wakeup) and I7 (cancel/hand-off race) — eliminated by the SemaphoreSlim redesign.** `LeaseAsync`/`Release` no longer rendezvous two queues through a hand-rolled `LeaseRequest` (TCS + linked CTSs). Capacity is now a single `SemaphoreSlim(maxSize, maxSize)` — a permit is the right to one item — plus the one idle `ConcurrentQueue`. With one structure there is no second queue to fall out of sync with (I1 gone), and no TCS to race a result against a cancel (I7 gone). The lease timeout still surfaces as `TaskCanceledException` (zero observable change — `WaitAsync`-returns-`false` is translated back to it). Regression test `Lease_Does_Not_Lose_Wakeups_Under_Concurrency` is red on the old rendezvous (a waiter times out under a Barrier-aligned release/queue collision) and green on the semaphore. The ~120-line `LeaseRequest` class and the two `CA2000` suppressions that vouched for its disposal are deleted.
+  - **Derived counters (bonus).** `itemsAllocated` and its `Lock` are gone: `ActiveLeases = maxSize - gate.CurrentCount`, `ItemsAvailable = pool.Count`, `ItemsAllocated = ActiveLeases + ItemsAvailable`. The counters cannot desync from the items because they are computed from live state — which retires the old Clear count-clobber concern entirely. `QueuedLeases` is the one explicit counter the semaphore hides (`Interlocked`, incremented only on the contended slow path).
 
 ---
 
-## Clear — defined contract
+## Clear — defined contract (strict-max)
 
-`Clear()` is now specified as:
+`Clear()` is specified as:
 
 1. Drain and dispose all currently-idle (pooled) items.
-2. Refill the pool with **fresh** items to `max(QueuedLeases, initialSize)`.
-3. Hand fresh items to any queued waiters; the remainder stock the pool.
+2. Refill idle with **fresh** items to `min(MinSize, free capacity)`, where free capacity is `gate.CurrentCount`. Idle items hold no permit, so this never touches the semaphore and cannot over-allocate past `maxSize`.
+3. Queued waiters are **not** served by `Clear` — they are served by normal returns (`Release`), which the semaphore already guarantees.
 
-Tests encoding this (replacing the misleadingly-named `Clear_Clears_Pool`): `Clear_Disposes_Idle_Items_And_Refills_With_Fresh_Ones` and `Clear_Fulfills_Queued_Lease_Requests`. This resolves the contract ambiguity in [`test-findings.md`](./test-findings.md) I1.
+Tests: `Clear_Disposes_Idle_Items_And_Refills_With_Fresh_Ones` and `Clear_Does_Not_Over_Allocate_For_Queued_Requests` (the latter replaces `Clear_Fulfills_Queued_Lease_Requests`). The `IPool<T>.Clear` XML doc was corrected to describe dispose-idle + refill-to-`MinSize`, with waiters served by returns.
 
-- **Doc follow-up (open):** the `IPool<T>.Clear` XML doc still reads *"clears the pool and sets allocated to zero,"* which contradicts the defined re-seed behavior — it should be corrected to describe dispose-idle + refill-to-`MinSize` + fulfill-waiters.
-- **Accepted limitation (was I2):** calling `Clear()` while the pool is **saturated with outstanding leases** temporarily over-allocates past `maxSize` and leaves `itemsAllocated` under-counting until those leases return (returns currently re-pool instead of shedding). This is accepted as ADO `ClearPool`-style behavior — you call `Clear`, it clears, and the transient excess drains as items come back. To make the count reconverge *exactly* (no tracking needed), the agreed-but-unimplemented option is: count `itemsAllocated` incrementally (drop the `itemsAllocated = count` reset; drain decrements, create `+=`) and **shed on return** — `Release` disposes the returned item instead of pooling it while `itemsAllocated > maxSize`.
+- **Former limitation (was I2) — gone.** The previous contract over-created past `maxSize` to hand items to queued waiters, transiently exceeding the cap and leaving the count under-reporting until leases returned. Strict-max removes that by construction (refill only up to free capacity), and the derived counters can no longer under-report. This was chosen as both the cleaner design and a fix, not a concession.
 
 ---
 
 ## Open — Important
 
-### I1. Lost-wakeup race between "no item available" and enqueuing the lease request  *(the one remaining critical, contract-independent bug)*
-`LeaseAsync` checks `TryAcquireItem` and, on failure, enqueues a `LeaseRequest` — with **no lock spanning the two**. `gate` guards only `itemsAllocated`, not the `pool`/`leaseRequests` rendezvous.
-
-- A: `TryAcquireItem` → false (pool empty, at max).
-- B (`Release`): `leaseRequests` still empty → `pool.Enqueue(item)`.
-- A: enqueues its `LeaseRequest`.
-
-End state: an item sits in `pool`, a waiter sits in `leaseRequests`, unmatched. The waiter is only woken by a *future* `Release`. Because `leaseTimeout` defaults to `Timeout.InfiniteTimeSpan`, if the system goes quiescent the waiter **hangs forever** despite an idle item being available.
-
-- **Suggestion:** after enqueuing the request, re-attempt acquisition and fulfill your own request if an item is now available (double-check), or coordinate `pool`/`leaseRequests` under a single lock on the slow path.
-
 ### I4. Resource leak if item creation throws during construction
-The constructor eagerly fills the pool: `pool = new(CreateItems(initialSize).Select(PoolItem.Create))`. `CreateItems` now builds an eager `List` by calling `itemFactory.CreateItem()` `initialSize` times. If the *k*-th call throws, items 1…k-1 are created but the list/queue is never assigned to `pool` — so they're never `Dispose()`d. For a disposable item (a `SmtpClient`) that leaks sockets on a failed construction.
+The constructor eagerly fills the pool: `pool = new(CreateItems(initialSize).Select(PoolItem.Create))`. `CreateItems` builds an eager `List` by calling `itemFactory.CreateItem()` `initialSize` times. If the *k*-th call throws, items 1…k-1 are created but the list/queue is never assigned to `pool` — so they're never `Dispose()`d. For a disposable item (a `SmtpClient`) that leaks sockets on a failed construction. (The same applies to `Clear`'s reseed loop, which enqueues fresh items one at a time; a mid-loop throw leaves earlier ones safely pooled, but a throw on the *first* leaves none leaked.)
 
-- **Suggestion:** materialize the initial items in a try/catch that disposes anything already created before rethrowing — the same guard `TryCreateItem` already has on its create path.
+- **Suggestion:** materialize the initial items in a try/catch that disposes anything already created before rethrowing.
 
-### I7. Item leak on the cancellation / hand-off race for queued leases
-When `Release` hands an item to a queued waiter via `TrySetResult`, it races the waiter's own cancellation. If the token fires at the same instant, the result wins (the TCS is already completed) and `LeaseAsync` returns the item **without re-checking cancellation**.
+---
 
-- **Why it matters:** a caller expecting `OperationCanceledException` on cancel can drop the item it never realized it received → leak.
-- **Suggestion:** after `await leaseRequest.Task`, if cancellation was requested, release the item back and throw `OperationCanceledException`.
+## Won't fix (by design)
 
 ### I9. No protection against double-release / foreign release
 `Release(item)` has no ownership tracking. Called twice on the same instance — or with an item the pool never created — it enqueues duplicates, after which two leasers can receive the **same** instance.
 
-- **Suggestion:** track owned/leased instances (e.g. a set keyed by reference) and ignore or throw on double/foreign release. (A leased-item registry would also enable the generation-free staleness story if ever needed.)
+**Disposition: won't fix — caller-contract violation (user error).** Releasing an item you do not hold (or releasing it twice) is misuse, in the same vein as `ArrayPool<T>.Return`-ing a buffer twice. The pool documents lease/release as a balanced pair and does not police it. A reference-keyed owned/leased registry was considered and declined: it adds per-lease bookkeeping (and a lock) to guard against a misuse the caller fully controls.
+
+- **For the record — the misuse's blast radius:** `Release` enqueues the item *before* `gate.Release()`, so a double/foreign release enqueues the duplicate, then `gate.Release()` either throws `SemaphoreFullException` (only when already at capacity) or **silently inflates the permit count** — an over-counted `gate.CurrentCount` lets the pool subsequently create *past* `maxSize`. This is a *new* failure mode versus the pre-redesign aliasing (which never breached the cap), so the semaphore did **not** tighten double-release safety. Noted so the decision is informed — it does not change the disposition.
 
 ---
 
 ## Minor / nits  *(line numbers approximate)*
 
-- **`IsNotExpired()` is redundant.** `!Task.IsCompleted && !Task.IsCompletedSuccessfully` ≡ `!Task.IsCompleted` (success implies completion).
-- **`[MethodImpl(AggressiveInlining)]` on large methods** (`Release`/`Clear`/`LeaseAsync()`). Loop/logging/large bodies the JIT won't inline; the hint is noise.
 - **`DateTime.UtcNow` in `PoolItem`.** Not `TimeProvider`-based, so idle-timeout logic isn't deterministically testable (also flagged as `test-findings.md` M4).
-- **`ActiveLeases` / `ItemsAvailable` are composite non-atomic reads.** `itemsAllocated` and `pool.Count` are read separately, so derived counters can be transiently inconsistent under concurrency. Metrics-only impact.
-- **Idle eviction is lazy only** (`TryDequeue`). An item past `idleTimeout` is disposed only when someone next tries to dequeue it; nothing reaps idle items proactively.
-- **`ItemsAvailable => pool?.Count ?? 0`.** The `?.` exists only because the metric observers are registered before `pool` is assigned in the ctor; reordering would make the null-guard unnecessary.
+- **Derived counters are composite non-atomic reads.** `ActiveLeases` reads `gate.CurrentCount`, and `ItemsAllocated` adds `pool.Count`, read separately — so the counters can be transiently inconsistent under concurrency (e.g. `Release` enqueues before releasing the permit, so `ItemsAllocated` briefly over-counts by one). Metrics-only impact.
+- **Idle eviction is lazy only** (`TryDequeue` in `TryAcquireItem`). An item past `idleTimeout` is disposed only when someone next tries to dequeue it; nothing reaps idle items proactively.
+- **Utilization observer is uncovered.** The `RegisterUtilizationRateObserver` lambda's `ItemsAllocated == 0 ? 0 : …` branch isn't exercised (no metrics test polls it); covered by the future metrics-test `todo`.
+
+**Resolved nits:** `IsNotExpired()` (gone with `LeaseRequest`); `[MethodImpl(AggressiveInlining)]` dropped from `Release`; `ItemsAvailable => pool?.Count ?? 0` simplified to `pool.Count` after the ctor reorder.

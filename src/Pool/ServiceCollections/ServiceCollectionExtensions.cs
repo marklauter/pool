@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Pool.DefaultStrategies;
 using Pool.Metrics;
 using System.Diagnostics.CodeAnalysis;
@@ -36,6 +37,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
+        // eager bind drives the registration-time UseDefault* decisions below
         var options = configuration
             .GetSection(nameof(PoolOptions))
             .Get<PoolOptions>()
@@ -43,11 +45,25 @@ public static class ServiceCollectionExtensions
 
         configureOptions?.Invoke(options);
 
-        services
+        // the validated options pipeline is the runtime source the pool consumes:
+        // ValidateDataAnnotations enforces the [Range] constraints, ValidateOnStart fails fast at host startup
+        var optionsBuilder = services
+            .AddOptions<PoolOptions>()
+            .Bind(configuration.GetSection(nameof(PoolOptions)));
+        if (configureOptions is not null)
+        {
+            _ = optionsBuilder.Configure(configureOptions);
+        }
+
+        _ = optionsBuilder
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        _ = services
             .AddDefaultPreparationStrategy<TPoolItem>(options)
             .AddDefaultItemFactory<TPoolItem>(options)
-            .AddDefaultPoolMetrics<TPoolItem>()
-            .TryAddSingleton(options);
+            .AddDefaultPoolMetrics<TPoolItem>();
+        services.TryAddSingleton(static sp => sp.GetRequiredService<IOptions<PoolOptions>>().Value);
         services.TryAddSingleton<IPool<TPoolItem>, Pool<TPoolItem>>();
 
         return services;
@@ -132,7 +148,12 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        services.TryAddSingleton(configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>() ?? new PoolOptions());
+        _ = services
+            .AddOptions<PoolOptions>()
+            .Bind(configuration.GetSection(nameof(PoolOptions)))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.TryAddSingleton(static sp => sp.GetRequiredService<IOptions<PoolOptions>>().Value);
         services.TryAddTransient<IItemFactory<TPoolItem>, TItemFactory>();
         services.TryAddTransient<IPreparationStrategy<TPoolItem>, TPreparationStrategy>();
         services.TryAddTransient<IPool<TPoolItem>, Pool<TPoolItem>>();

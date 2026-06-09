@@ -25,8 +25,8 @@
 		<Exclude>[*]*Exception</Exclude>
 		<!-- Source-generated files are plumbing too. -->
 		<ExcludeByFile>**/obj/**/*.g.cs</ExcludeByFile>
-		<!-- Coverage ratchet: floors set below the measured 88.95/65.15/91.13 (line/branch/method). Raise only — never lower — as coverage is measured. -->
-		<Threshold>85,60,90</Threshold>
+		<!-- Coverage ratchet: floors set below the measured 100/92.85/100 (line/branch/method). Raise only — never lower — as coverage is measured. -->
+		<Threshold>95,90,95</Threshold>
 		<ThresholdType>line,branch,method</ThresholdType>
 		<ThresholdStat>total</ThresholdStat>
 	</PropertyGroup>

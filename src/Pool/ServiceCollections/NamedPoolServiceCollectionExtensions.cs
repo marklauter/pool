@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Pool.DefaultStrategies;
 using Pool.Metrics;
 using System.Diagnostics.CodeAnalysis;
@@ -97,15 +98,35 @@ public static class NamedPoolServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         var serviceKey = ServiceKey.Create<TPoolItem>(name);
+
+        // eager bind drives the registration-time UseDefault* decisions below
         var options = configuration.GetSection($"{serviceKey}_{nameof(PoolOptions)}").Get<PoolOptions>()
             ?? configuration.GetSection(nameof(PoolOptions)).Get<PoolOptions>()
             ?? new PoolOptions();
 
         configureOptions?.Invoke(options);
 
+        // named, validated options pipeline keyed by serviceKey; the pool resolves it via IOptionsMonitor.
+        // bind the general section first, then let the pool-specific section override it per-property.
+        var optionsBuilder = services
+            .AddOptions<PoolOptions>(serviceKey)
+            .Bind(configuration.GetSection(nameof(PoolOptions)))
+            .Bind(configuration.GetSection($"{serviceKey}_{nameof(PoolOptions)}"));
+        if (configureOptions is not null)
+        {
+            _ = optionsBuilder.Configure(configureOptions);
+        }
+
+        _ = optionsBuilder
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
         _ = services
             .AddPoolFactory<TPoolItem>()
-            .AddKeyedSingleton(serviceKey, options)
+            // the keyed PoolOptions stays resolvable, but now delegates to the validated named-options
+            // pipeline above (single source of truth) instead of holding a raw, unvalidated instance
+            .AddKeyedSingleton(serviceKey, static (serviceProvider, key) =>
+                serviceProvider.GetRequiredService<IOptionsMonitor<PoolOptions>>().Get((string)key!))
             .AddDefaultPreparationStrategy<TPoolItem>(options, serviceKey)
             .AddDefaultItemFactory<TPoolItem>(options, serviceKey)
             .AddDefaultPoolMetrics<TPoolItem>(name)

@@ -11,10 +11,10 @@ public interface IPool<TPoolItem>
     where TPoolItem : class
 {
     /// <summary>
-    /// disposes all currently-idle items, then refills the pool with fresh items —
-    /// at least MinSize, and enough to fulfill any queued lease requests — handing
-    /// those items to waiting requests. items currently leased out are unaffected
-    /// and re-enter the pool when released.
+    /// disposes all currently-idle items, then refills the pool with fresh idle items up to
+    /// MinSize (capped by free capacity, so the pool never exceeds its maximum). items currently
+    /// leased out are unaffected and re-enter the pool when released; any queued lease requests
+    /// are served by those returns, not by this call.
     /// </summary>
     /// <exception cref="ObjectDisposedException">the pool has been disposed.</exception>
     void Clear();

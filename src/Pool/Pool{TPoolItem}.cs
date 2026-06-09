@@ -1,9 +1,8 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Pool.Metrics;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
 
 namespace Pool;
 
@@ -14,107 +13,6 @@ public sealed class Pool<TPoolItem>
     : IPool<TPoolItem>
     where TPoolItem : class
 {
-    /// <summary>
-    /// LeaseRequest allows async leasing of pool items. 
-    /// It's essentially a wrapper around a task completion source.
-    /// </summary>
-    private sealed class LeaseRequest
-        : IDisposable
-    {
-        public Task<TPoolItem> Task => taskCompletionSource.Task;
-
-        private readonly TaskCompletionSource<TPoolItem> taskCompletionSource = new();
-        private readonly CancellationTokenSource? timeoutTokenSource;
-        private readonly CancellationTokenSource? linkedTokenSource;
-        private readonly CancellationTokenRegistration? cancellationTokenRegistration;
-        private bool disposed;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool IsNotExpired() => !Task.IsCompleted && !Task.IsCompletedSuccessfully;
-
-        public LeaseRequest(TimeSpan timeout, CancellationToken cancellationToken)
-        {
-            // when timeout is infinite and cancellation token is none, don't register any callbacks
-            if (timeout == Timeout.InfiniteTimeSpan)
-            {
-                // when timeout is infinite and cancellation token is not none, register cancellation token canceled callback
-                if (cancellationToken != CancellationToken.None)
-                {
-                    cancellationTokenRegistration = cancellationToken.Register(Cancel);
-                }
-
-                return;
-            }
-
-            timeoutTokenSource = new CancellationTokenSource(timeout);
-
-            // when cancellation token is none, only register timeout token canceled callback
-            if (cancellationToken == CancellationToken.None)
-            {
-                cancellationTokenRegistration = timeoutTokenSource.Token.Register(Cancel);
-                return;
-            }
-
-            // when both timeout and cancellation token are provided, register linked token canceled callback
-            linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                timeoutTokenSource.Token);
-
-            cancellationTokenRegistration = linkedTokenSource.Token.Register(Cancel);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TrySetResult(TPoolItem item)
-        {
-            if (taskCompletionSource.TrySetResult(item))
-            {
-                Dispose();
-                return true;
-            }
-
-            return false;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void Cancel()
-        {
-            // if taskCompletionSource.Task.IsCompletedSuccessfully, then dispose is already called
-            // if taskCompletionSource.TrySetCanceled() returns false, then it's already canceled, faulted, or completed (ran to completion)
-            if (!taskCompletionSource.Task.IsCompletedSuccessfully
-                && taskCompletionSource.TrySetCanceled())
-            {
-                Dispose();
-            }
-        }
-
-        public void Dispose()
-        {
-            if (disposed)
-            {
-                return;
-            }
-
-            disposed = true;
-
-            if (timeoutTokenSource is not null)
-            {
-                // 1.  Canceling unblocks any awaiters.
-                // 2.  Cancel() will either...
-                //      2.a  call SetCanceled() directly if there is no linked token source,
-                //      2.b  or it will trigger Cancel() on the linked token source,
-                // 3.  so the linked token source does not need to be canceled explicitly.
-                timeoutTokenSource.Cancel();
-                timeoutTokenSource.Dispose();
-            }
-
-            linkedTokenSource?.Dispose();
-
-            cancellationTokenRegistration?.Dispose();
-
-            Cancel();
-        }
-    }
-
     private readonly record struct PoolItem(
         DateTime IdleSince,
         TPoolItem Item)
@@ -125,10 +23,18 @@ public sealed class Pool<TPoolItem>
 
     private static readonly bool IsPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
 
+    // idle (available) items waiting to be leased
     private readonly ConcurrentQueue<PoolItem> pool;
-    private readonly ConcurrentQueue<LeaseRequest> leaseRequests = new();
-    // guards itemsAllocated
-    private readonly Lock gate = new();
+
+    // capacity gate: a permit is the right to hold one item, so permits == free capacity and the
+    // leased count can never exceed maxSize. the semaphore's own wait queue is the lease backlog,
+    // which removes the separate waiter queue (and the lost-wakeup / cancel-vs-handoff races with it).
+    private readonly SemaphoreSlim gate;
+
+    // callers currently parked in WaitAsync. the semaphore hides its waiter count, so QueuedLeases
+    // needs this explicit counter; only the contended (slow) path increments it.
+    private int queuedLeases;
+
     private readonly int maxSize;
     private readonly int initialSize;
     private readonly bool isPreparationRequired;
@@ -181,53 +87,61 @@ public sealed class Pool<TPoolItem>
         ArgumentNullException.ThrowIfNull(itemFactory);
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(metrics);
+        ArgumentNullException.ThrowIfNull(options);
+        // backstop for every construction path (direct new(...) bypasses the options pipeline);
+        // also keeps SemaphoreSlim(maxSize, maxSize) from throwing a cryptic out-of-range error
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxSize, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.MinSize);
 
         this.itemFactory = itemFactory;
         this.logger = logger;
         this.metrics = metrics;
 
+        isPreparationRequired = preparationStrategy is not null;
+        this.preparationStrategy = preparationStrategy;
+        // PoolOptions carries its own defaults (MaxSize 100, timeouts InfiniteTimeSpan), so read directly
+        maxSize = options.MaxSize;
+        initialSize = Math.Min(options.MinSize, maxSize);
+
+        leaseTimeout = options.LeaseTimeout;
+        idleTimeout = options.IdleTimeout;
+        preparationTimeout = options.PreparationTimeout;
+
+        // one permit per unit of capacity; the leased count can never exceed maxSize
+        gate = new SemaphoreSlim(maxSize, maxSize);
+        pool = new(CreateItems(initialSize).Select(PoolItem.Create));
+
+        // counters are derived from gate + pool, so register the observers once both exist
         this.metrics.RegisterItemsAllocatedObserver(() => ItemsAllocated);
         this.metrics.RegisterItemsAvailableObserver(() => ItemsAvailable);
         this.metrics.RegisterActiveLeasesObserver(() => ActiveLeases);
         this.metrics.RegisterQueuedLeasesObserver(() => QueuedLeases);
         this.metrics.RegisterUtilizationRateObserver(() => ItemsAllocated == 0 ? 0 : (double)ActiveLeases / ItemsAllocated);
 
-        isPreparationRequired = preparationStrategy is not null;
-        this.preparationStrategy = preparationStrategy;
-        maxSize = options?.MaxSize ?? int.MaxValue;
-        initialSize = Math.Min(options?.MinSize ?? 0, maxSize);
-
-        leaseTimeout = options?.LeaseTimeout ?? Timeout.InfiniteTimeSpan;
-        idleTimeout = options?.IdleTimeout ?? Timeout.InfiniteTimeSpan;
-        preparationTimeout = options?.PreparationTimeout ?? Timeout.InfiniteTimeSpan;
-
-        pool = new(CreateItems(initialSize).Select(PoolItem.Create));
-
         logger.LogInformation("{PoolName} created with {@Options}", PoolName, options);
     }
 
-    private volatile int itemsAllocated;
     /// <inheritdoc/>
-    public int ItemsAllocated => itemsAllocated;
+    /// <remarks>derived: leased (permits held) plus idle (available).</remarks>
+    public int ItemsAllocated => ActiveLeases + ItemsAvailable;
 
     /// <inheritdoc/>
-    public int ItemsAvailable => pool?.Count ?? 0;
+    public int ItemsAvailable => pool.Count;
 
     /// <inheritdoc/>
-    public int ActiveLeases => ItemsAllocated - ItemsAvailable;
+    /// <remarks>derived: permits held == capacity minus free permits.</remarks>
+    public int ActiveLeases => maxSize - gate.CurrentCount;
 
     /// <inheritdoc/>
-    public int QueuedLeases => leaseRequests.Count;
+    public int QueuedLeases => Volatile.Read(ref queuedLeases);
 
     /// <inheritdoc/>
     public string Name => PoolName;
 
     /// <inheritdoc/>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ValueTask<TPoolItem> LeaseAsync() => LeaseAsync(CancellationToken.None);
 
     /// <inheritdoc/>
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "the LeaseRequest is handed to the leaseRequests queue; it is disposed via TrySetResult/Cancel when fulfilled, or by Pool.Dispose — not within this scope")]
     public async ValueTask<TPoolItem> LeaseAsync(CancellationToken cancellationToken)
     {
         using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(LeaseAsync), Guid.NewGuid());
@@ -235,26 +149,48 @@ public sealed class Pool<TPoolItem>
         var timer = Stopwatch.StartNew();
         try
         {
+            ThrowIfDisposed();
             logger.LogDebug("starting lease request, pool state: {ItemsAllocated} of {MaxSize} allocated, {ItemsAvailable} available",
                 ItemsAllocated, maxSize, ItemsAvailable);
 
-            if (IsNotDisposed().TryAcquireItem(out var item))
+            // fast path: take a permit without waiting (None is intentional — the non-blocking probe
+            // never cancels; cancellation is honored in the slow WaitAsync below and in preparation).
+            // only the contended path counts as a queued lease.
+            if (!gate.Wait(0, CancellationToken.None))
             {
-                RecordLeaseWaitTime(timer);
-                // returns item to queue on preparation failure
-                return await EnsurePreparedAsync(item.Item, cancellationToken);
+                logger.LogInformation("no items available, queuing lease request. lease queue size: {QueuedLeases}", QueuedLeases);
+                _ = Interlocked.Increment(ref queuedLeases);
+                try
+                {
+                    // one call subsumes the wait, the pool's lease timeout, and caller cancellation
+                    if (!await gate.WaitAsync(leaseTimeout, cancellationToken))
+                    {
+                        // preserve the v6 contract: a lease timeout surfaces as TaskCanceledException
+                        throw new TaskCanceledException();
+                    }
+                }
+                finally
+                {
+                    _ = Interlocked.Decrement(ref queuedLeases);
+                }
             }
 
-            logger.LogInformation("no items available, queuing lease request. lease queue size: {QueuedLeases}", QueuedLeases);
-            // lease requests are pulled off the queue in the Release method
-            var leaseRequest = new LeaseRequest(leaseTimeout, cancellationToken);
-            leaseRequests.Enqueue(leaseRequest);
-
-            // wait for a released item to be handed to this request, then record the true queue wait
-            var leased = await leaseRequest.Task;
-            RecordLeaseWaitTime(timer);
-            // returns item to queue on preparation failure
-            return await EnsurePreparedAsync(leased, cancellationToken);
+            // INVARIANT: a permit is held from here. every exit below either releases it exactly once
+            // (failure -> inner catch) or transfers ownership to the caller (success -> a later Release(item)).
+            try
+            {
+                var item = TryAcquireItem();
+                // record the lease wait (acquire + queue wait) before preparation, so the metric
+                // excludes prep time — which RecordPreparationTime already captures separately
+                RecordLeaseWaitTime(timer);
+                return await EnsurePreparedAsync(item, cancellationToken);
+            }
+            catch
+            {
+                // never leak the permit
+                _ = gate.Release();
+                throw;
+            }
         }
         catch (Exception ex)
         {
@@ -278,33 +214,16 @@ public sealed class Pool<TPoolItem>
     }
 
     /// <inheritdoc/>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "the dequeued LeaseRequest is disposed via TrySetResult/Cancel when fulfilled or purged as expired, or by Pool.Dispose; ownership stays with the queue, not this scope")]
     public void Release(TPoolItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        _ = IsNotDisposed();
+        ThrowIfDisposed();
         using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(Release), Guid.NewGuid());
 
-        logger.LogDebug("{PendingLeaseRequestCount}", leaseRequests.Count);
-        while (leaseRequests.TryDequeue(out var leaseRequest))
-        {
-            // Tries to set the task result and return, which unblocks the caller awaiting the lease request.
-            // if TryTaskSetResult returns false,
-            // then the lease request is timed out or canceled,
-            // and the caller already knows about the cancelation,
-            // so we can safely ignore the lease request.
-            // This purges expired requests from the queue.
-            if (leaseRequest.IsNotExpired() && leaseRequest.TrySetResult(item))
-            {
-                logger.LogDebug("fulfilled queued lease request");
-                return;
-            }
-        }
-
-        // there are no valid lease requests, so return the item to the pool
-        logger.LogDebug("returned item to the pool");
+        // make the item available before returning the permit so a woken waiter always finds it
         pool.Enqueue(PoolItem.Create(item));
+        _ = gate.Release();
+        logger.LogDebug("returned item to the pool");
     }
 
     /// <inheritdoc/>
@@ -312,29 +231,22 @@ public sealed class Pool<TPoolItem>
     {
         using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(Clear), Guid.NewGuid());
 
-        // drain the idle queue (pool)
-        IsNotDisposed().DrainPoolAndDisposeItems();
-        var count = QueuedLeases > initialSize ? QueuedLeases : initialSize;
+        ThrowIfDisposed();
 
-        // create a batch of warm items to fill the pool 
-        // and fulfill queued lease requests 
-        var items = CreateItems(count);
+        // dispose every currently-idle item; items leased out are unaffected and re-enter on release
+        DrainPoolAndDisposeItems();
 
-        // push items onto the pool
-        // and fullfill queued lease requests.
-        foreach (var item in items)
+        // refill idle up to MinSize, capped by free capacity so we never over-allocate past maxSize.
+        // idle items hold no permit, so reseeding never touches the semaphore.
+        var seed = Math.Min(initialSize, gate.CurrentCount);
+        for (var i = 0; i < seed; i++)
         {
-            Release(item);
+            pool.Enqueue(PoolItem.Create(itemFactory.CreateItem()));
         }
     }
 
     private List<TPoolItem> CreateItems(int count)
     {
-        lock (gate)
-        {
-            itemsAllocated = count;
-        }
-
         var items = new List<TPoolItem>(count);
         for (var i = 0; i < count; i++)
         {
@@ -344,91 +256,36 @@ public sealed class Pool<TPoolItem>
         return items;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool TryAcquireItem(out PoolItem item)
+    /// <remarks>a permit is held, so the caller is entitled to exactly one item: a valid idle one, or a fresh one.</remarks>
+    private TPoolItem TryAcquireItem()
     {
-        if (TryDequeue(out item))
+        while (pool.TryDequeue(out var pooled))
         {
-            logger.LogDebug("TryAcquireItem {AcquisitionMethod}", "dequeued");
-            return true;
-        }
-
-        if (TryCreateItem(out item))
-        {
-            logger.LogDebug("TryAcquireItem {AcquisitionMethod}", "created");
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool TryCreateItem(out PoolItem item)
-    {
-        bool canCreate;
-        lock (gate)
-        {
-            canCreate = itemsAllocated < maxSize;
-            if (!canCreate)
+            if (IdleTimeIsNotExceeded(idleTimeout, pooled))
             {
-                item = default;
-                logger.LogWarning("{PoolName}.{MethodName} maximum capacity reached {MaxCapacity}", PoolName, nameof(TryCreateItem), maxSize);
-                return false;
-            }
-
-            ++itemsAllocated;
-        }
-
-        logger.LogDebug("{PoolName}.{MethodName} creating new pool item, total allocated: {ItemsAllocated}", PoolName, nameof(TryCreateItem), itemsAllocated);
-        try
-        {
-            item = PoolItem.Create(itemFactory.CreateItem());
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "{PoolName}.{MethodName} failure", PoolName, nameof(TryCreateItem));
-            lock (gate)
-            {
-                --itemsAllocated;
-            }
-
-            throw;
-        }
-    }
-
-    private bool TryDequeue(out PoolItem item)
-    {
-        while (pool.TryDequeue(out item))
-        {
-            if (IdleTimeIsNotExceeded(idleTimeout, item))
-            {
-                return true;
+                logger.LogDebug("TryAcquireItem {AcquisitionMethod}", "dequeued");
+                return pooled.Item;
             }
 
             logger.LogInformation("{PoolName}.{MethodName} removing expired item, {IdleTimeMs}ms exceeded limit: {IdleTimeoutMs}ms",
-                PoolName, nameof(TryDequeue), item.IdleTime.TotalMilliseconds, idleTimeout.TotalMilliseconds);
-            RemoveItem(item.Item);
+                PoolName, nameof(TryAcquireItem), pooled.IdleTime.TotalMilliseconds, idleTimeout.TotalMilliseconds);
+            DisposeItem(pooled.Item);
         }
 
-        return false;
+        logger.LogDebug("TryAcquireItem {AcquisitionMethod}", "created");
+        return itemFactory.CreateItem();
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IdleTimeIsNotExceeded(TimeSpan idleTimeout, PoolItem item) =>
         idleTimeout == Timeout.InfiniteTimeSpan || item.IdleTime < idleTimeout;
 
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
-    private void RemoveItem(TPoolItem item)
+    private static void DisposeItem(TPoolItem item)
     {
-        lock (gate)
-        {
-            --itemsAllocated;
-        }
-
-        logger.LogDebug("{PoolName}.{MethodName} removing item from pool, total allocated: {ItemsAllocated}", PoolName, nameof(RemoveItem), itemsAllocated);
         if (IsPoolItemDisposable)
         {
-            (item as IDisposable)?.Dispose();
+            // IsPoolItemDisposable guarantees TPoolItem implements IDisposable, so the cast is safe
+            ((IDisposable)item).Dispose();
         }
     }
 
@@ -473,29 +330,23 @@ public sealed class Pool<TPoolItem>
             logger.LogError(ex, "preparation failure");
             // preparation failed, so the item is in an indeterminate state (e.g. a dropped socket).
             // discard and dispose it rather than returning it to the pool, otherwise the same broken
-            // item would poison the next leaser. the caller is expected to retry the lease.
-            RemoveItem(item);
+            // item would poison the next leaser. the caller's permit is released by LeaseAsync, and
+            // the caller is expected to retry the lease.
+            DisposeItem(item);
             metrics.RecordPreparationException(ex);
             throw;
         }
     }
 
-    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
     private void DrainPoolAndDisposeItems()
     {
         while (pool.TryDequeue(out var item))
         {
-            if (IsPoolItemDisposable)
-            {
-                (item.Item as IDisposable)?.Dispose();
-            }
+            DisposeItem(item.Item);
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private Pool<TPoolItem> IsNotDisposed() => disposed
-        ? throw new ObjectDisposedException(nameof(Pool<>))
-        : this;
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(disposed, nameof(Pool<>));
 
     /// <inheritdoc/>
     public void Dispose()
@@ -507,11 +358,8 @@ public sealed class Pool<TPoolItem>
 
         disposed = true;
 
-        while (leaseRequests.TryDequeue(out var leaseRequest))
-        {
-            leaseRequest.Dispose();
-        }
-
+        // any caller parked in WaitAsync wakes with ObjectDisposedException
         DrainPoolAndDisposeItems();
+        gate.Dispose();
     }
 }
