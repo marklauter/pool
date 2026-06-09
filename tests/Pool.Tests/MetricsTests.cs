@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Pool.Metrics;
 using Pool.Tests.Fakes;
 using System.Diagnostics.Metrics;
@@ -96,5 +97,38 @@ public sealed class MetricsTests
             async () => await pool.LeaseAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal(1L, collector.GetMeasurementSnapshot().Sum(m => m.Value));
+    }
+
+    [Fact]
+    public async Task Lease_Wait_Time_Excludes_Preparation_Time()
+    {
+        using var provider = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        var meterFactory = provider.GetRequiredService<IMeterFactory>();
+        var metrics = new DefaultPoolMetrics(PoolName, meterFactory, NullLogger<DefaultPoolMetrics>.Instance);
+        using var waitCollector = new MetricCollector<double>(meterFactory, PoolName, $"{PoolName}.lease_wait_time");
+        using var prepCollector = new MetricCollector<double>(meterFactory, PoolName, $"{PoolName}.item_preparation_time");
+
+        // preparation consumes a fixed slice of fake time; the lease-wait timer must not include it
+        var timeProvider = new FakeTimeProvider();
+        var prepDuration = TimeSpan.FromSeconds(5);
+
+        using var pool = new Pool<IEcho>(
+            new EchoFactory(),
+            NullLogger<Pool<IEcho>>.Instance,
+            metrics,
+            new ClockAdvancingEchoPreparationStrategy(timeProvider, prepDuration),
+            new PoolOptions { MinSize = 0, MaxSize = 1, UseDefaultFactory = false, UseDefaultPreparationStrategy = false },
+            timeProvider);
+
+        var item = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        pool.Release(item);
+
+        var waits = waitCollector.GetMeasurementSnapshot();
+        var preps = prepCollector.GetMeasurementSnapshot();
+        Assert.Equal(1, waits.Count);
+        Assert.Equal(1, preps.Count);
+        // the lease-wait timer stops before preparation, so it captures none of the prep duration
+        Assert.Equal(0d, waits[0].Value, 3);
+        Assert.Equal(prepDuration.TotalMilliseconds, preps[0].Value, 3);
     }
 }

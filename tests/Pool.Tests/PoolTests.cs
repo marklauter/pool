@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Pool.Metrics;
 using Pool.Tests.Fakes;
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Pool.Tests;
@@ -528,6 +529,87 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics, PoolOptio
         Assert.Equal(1d, capturingMetrics.UtilizationRate!());
 
         pool.Release(item);
+    }
+
+    [Fact]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP013:Await in using", Justification = "it's not")]
+    public async Task Concurrent_Churn_Never_Hands_One_Item_To_Two_Callers()
+    {
+        // the core pool invariant under contention: with fewer permits than workers, no instance is
+        // ever held by two callers at once. each worker marks its leased item in a shared set (a
+        // collision means the pool aliased) and briefly holds it (a CPU spin, not a wall-clock wait,
+        // so two aliased holders would overlap). deterministic: a correct pool yields zero violations.
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 4,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, options);
+
+        var held = new ConcurrentDictionary<IEcho, byte>();
+        var doubleHandouts = 0;
+        var ct = TestContext.Current.CancellationToken;
+
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, 5_000),
+            new ParallelOptions { MaxDegreeOfParallelism = 16, CancellationToken = ct },
+            async (_, token) =>
+            {
+                var item = await pool.LeaseAsync(token);
+                if (!held.TryAdd(item, 0))
+                {
+                    _ = Interlocked.Increment(ref doubleHandouts);
+                }
+
+                Thread.SpinWait(200); // widen the critical section so an aliasing regression overlaps and is caught
+                _ = held.TryRemove(item, out _);
+                pool.Release(item);
+            });
+
+        Assert.Equal(0, doubleHandouts);
+        Assert.Equal(0, pool.ActiveLeases);
+        Assert.True(pool.ItemsAllocated <= options.MaxSize);
+    }
+
+    [Fact]
+    public async Task Caller_Cancellation_Cancels_A_Queued_Lease()
+    {
+        // LeaseTimeout is infinite, so the only thing that can end the queued lease is the caller's
+        // token — this isolates caller-cancellation from the timeout path (no real wait, no Task.Delay)
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 1,
+            LeaseTimeout = Timeout.InfiniteTimeSpan,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, options);
+
+        // hold the only permit so the next lease must queue
+        var held = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+
+        using var cts = new CancellationTokenSource();
+        var pending = pool.LeaseAsync(cts.Token).AsTask();
+        Assert.Equal(1, pool.QueuedLeases);
+
+        await cts.CancelAsync();
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+
+        // the cancelled waiter is purged and never consumed a permit
+        Assert.Equal(0, pool.QueuedLeases);
+        Assert.Equal(1, pool.ActiveLeases);
+
+        // capacity is intact: releasing the held lease lets a fresh lease succeed
+        pool.Release(held);
+        var next = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        Assert.NotNull(next);
+        pool.Release(next);
     }
 
     [Fact]

@@ -19,6 +19,8 @@
 	<PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
 		<IsPackable>false</IsPackable>
 		<IsTestProject>true</IsTestProject>
+		<!-- Test method names use underscores (Given_When_Then) by convention; suppress the naming rules for test projects here rather than in per-assembly GlobalSuppressions. IDE0079 keeps the inline IDISP suppressions in the test code from being flagged as unnecessary. -->
+		<NoWarn>$(NoWarn);CA1707;IDE1006;IDE0079</NoWarn>
 		<CollectCoverage>true</CollectCoverage>
 		<CoverletOutputFormat>cobertura</CoverletOutputFormat>
 		<!-- Exception types are plumbing; exclude from coverage to avoid noise. -->
