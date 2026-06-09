@@ -11,7 +11,6 @@ public sealed class Startup
     public Startup() => configuration = new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string>
         {
-            { "PoolOptions:PreparationRequired", "true" },
             { "PoolOptions:MinSize", "1" },
             { "PoolOptions:MaxSize", "2" },
             { "PoolOptions:LeaseTimeout", "00:00:00.01" },

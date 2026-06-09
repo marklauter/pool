@@ -6,9 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Pool.Tests;
 
-// todo: add metrics tests https://learn.microsoft.com/en-us/dotnet/core/diagnostics/metrics-instrumentation#test-custom-metrics
-
-public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
+public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics, PoolOptions configuredOptions)
 {
     private static readonly ILoggerFactory LoggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
         builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
@@ -19,7 +17,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     public void Pool_Is_Injected() => Assert.NotNull(pool);
 
     [Fact]
-    public void Allocated_Matches_Min() => Assert.Equal(1, pool.ItemsAllocated);
+    public void Allocated_Matches_Min() => Assert.Equal(configuredOptions.MinSize, pool.ItemsAllocated);
 
     [Fact]
     public void Available_Matches_Allocated() => Assert.Equal(pool.ItemsAllocated, pool.ItemsAvailable);
@@ -94,17 +92,19 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     }
 
     [Fact]
-    public async Task Queued_Request_Timesout()
+    public async Task Queued_Request_Times_Out()
     {
+        // saturate capacity so the next lease must queue, then let it time out (Startup LeaseTimeout = 10ms)
         var instance1 = await pool.LeaseAsync(TestContext.Current.CancellationToken);
         var instance2 = await pool.LeaseAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(2, pool.ActiveLeases);
+        Assert.Equal(configuredOptions.MaxSize, pool.ActiveLeases);
         try
         {
-            var exception = await Assert
-                .ThrowsAsync<TaskCanceledException>(async () =>
-                    await pool.LeaseAsync(CancellationToken.None));
-            Assert.Contains("A task was canceled.", exception.Message);
+            _ = await Assert.ThrowsAsync<TaskCanceledException>(
+                async () => await pool.LeaseAsync(CancellationToken.None));
+
+            // the timed-out request is purged from the backlog, not left dangling
+            Assert.Equal(0, pool.QueuedLeases);
         }
         finally
         {
@@ -124,12 +124,15 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 
         var instance2 = await pool.LeaseAsync(CancellationToken.None);
         Assert.NotNull(instance2);
-        Assert.Equal(2, pool.ActiveLeases);
+        Assert.Equal(configuredOptions.MaxSize, pool.ActiveLeases);
 
-        var exception = await Assert.ThrowsAsync<TaskCanceledException>(async () => await pool.LeaseAsync(CancellationToken.None));
+        // a lease beyond capacity times out rather than allocating a third item
+        _ = await Assert.ThrowsAsync<TaskCanceledException>(
+            async () => await pool.LeaseAsync(CancellationToken.None));
 
-        Assert.Contains("A task was canceled.", exception.Message);
-        Assert.Equal(2, pool.ActiveLeases);
+        // the cap held: nothing was created past MaxSize
+        Assert.Equal(configuredOptions.MaxSize, pool.ItemsAllocated);
+        Assert.Equal(configuredOptions.MaxSize, pool.ActiveLeases);
     }
 
     [Fact]
@@ -146,7 +149,8 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 
         var instance = await pool.LeaseAsync(CancellationToken.None);
         pool.Release(instance);
-        await Task.Delay(10, TestContext.Current.CancellationToken);
+        // IdleTimeout = 0 means the released item is already expired, so the next dequeue evicts it
+        // without any elapsed-time dependency — no Task.Delay needed
         _ = await pool.LeaseAsync(CancellationToken.None);
 
         Assert.True(instance.IsDisposed());
@@ -205,8 +209,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
 
         timeProvider.Advance(TimeSpan.FromSeconds(31));
 
-        var exception = await Assert.ThrowsAsync<TaskCanceledException>(() => pending);
-        Assert.Contains("A task was canceled.", exception.Message);
+        _ = await Assert.ThrowsAsync<TaskCanceledException>(() => pending);
     }
 
     [Fact]
@@ -240,20 +243,30 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
     [Fact]
     public async Task Preparation_Strategy_Is_Applied()
     {
-        var preparationStrategy = new EchoPreparationStrategy();
+        // a counting spy proves the pool actually ran preparation, rather than re-deriving readiness
+        var preparationStrategy = new CountingEchoPreparationStrategy();
         var options = new PoolOptions
         {
+            MinSize = 0,
+            MaxSize = 1,
             UseDefaultPreparationStrategy = false,
             UseDefaultFactory = false,
         };
 
         using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, preparationStrategy, options);
 
-        var instance = await pool.LeaseAsync(CancellationToken.None);
+        // first lease creates an unprepared item, so the pool runs PrepareAsync exactly once
+        var instance = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(1, preparationStrategy.PrepareCount);
+        Assert.True(instance.IsConnected);
 
-        Assert.True(await preparationStrategy.IsReadyAsync(instance, CancellationToken.None));
-
+        // returning and re-leasing the now-ready item must not prepare it again
         pool.Release(instance);
+        var reused = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        Assert.Same(instance, reused);
+        Assert.Equal(1, preparationStrategy.PrepareCount);
+
+        pool.Release(reused);
     }
 
     [Fact]
@@ -315,6 +328,7 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
         var instances = await Task.WhenAll(tasks);
 
         Assert.Equal(10, pool.ActiveLeases);
+        Assert.Equal(10, instances.Distinct().Count()); // never hand the same item to two leasers
 
         foreach (var instance in instances)
         {
@@ -514,6 +528,32 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
         Assert.Equal(1d, capturingMetrics.UtilizationRate!());
 
         pool.Release(item);
+    }
+
+    [Fact]
+    public void Release_Null_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => pool.Release(null!));
+
+    [Fact]
+    public async Task Lease_Releases_Permit_When_Factory_Throws()
+    {
+        // MinSize 0 seeds nothing at construction, so the factory throw happens on the lease path
+        // (TryAcquireItem); the permit taken for that lease must be released so capacity is restored
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 1,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+        };
+
+        using var pool = new Pool<IEcho>(new ThrowAfterCountItemFactory(throwAfter: 0), Logger, metrics, options);
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await pool.LeaseAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, pool.ActiveLeases);
+        Assert.Equal(0, pool.ItemsAllocated);
     }
 
     // captures the utilization observer so a test can invoke the registered lambda directly,

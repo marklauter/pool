@@ -16,6 +16,7 @@ public sealed class PoolItemFactoryTests(IPoolMetrics metrics)
 
     [Fact]
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP017:Prefer using", Justification = "required for test")]
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "pool and factory are disposed inside the Record.Exception delegate to assert dispose is no-throw; the analyzer cannot track disposal through the lambda")]
     public async Task PoolItemFactory_Doesnt_Crash_On_Dispose()
     {
         using var services = new ServiceCollection()
@@ -34,10 +35,15 @@ public sealed class PoolItemFactoryTests(IPoolMetrics metrics)
 
         pool.Release(item);
 
-        // pool disposes all the items on the queue
-        pool.Dispose();
+        // disposing the pool (drains and disposes the queued items) and then the factory scope (which
+        // disposes them again through the DI scope) must not throw: the item tolerates double-dispose
+        var ex = Record.Exception(() =>
+        {
+            pool.Dispose();
+            factory.Dispose();
+        });
 
-        // factory disposes the scope, which also disposes the items, so the items need to protect themselves with dispose pattern
-        factory.Dispose();
+        Assert.Null(ex);
+        Assert.True(item.IsDisposed());
     }
 }

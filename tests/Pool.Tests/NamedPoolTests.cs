@@ -28,7 +28,6 @@ public sealed class NamedPoolTests
         {
             ["PoolOptions:UseDefaultFactory"] = "true",
             ["PoolOptions:UseDefaultPreparationStrategy"] = "true",
-            ["PoolOptions:PreparationRequired"] = "true",
             ["PoolOptions:MinSize"] = "1",
             ["PoolOptions:MaxSize"] = "2",
             ["PoolOptions:LeaseTimeout"] = "00:00:00.01",

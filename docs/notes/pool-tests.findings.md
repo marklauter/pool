@@ -1,130 +1,39 @@
 ---
-title: Pool.Tests review — open findings
-summary: The still-open findings from the Pool.Tests review after the SemaphoreSlim refactor and test rewrite — a dead config key, a brittle BCL-message assertion, the unasserted distinctness invariant, indirect and duplicate tests, wall-clock timing, and coverage gaps. Resolved items dropped; production-side status in pool{t}.findings.md.
-tags: [test-review, pool, note, todo]
+title: Pool.Tests review — findings
+summary: Test-review findings for tests/Pool.Tests after the SemaphoreSlim refactor. All important, moderate, and coverage-gap items are implemented and verified; two cosmetic nits (N5, N6) are deferred. Production-side status in pool{t}.findings.md.
+tags: [test-review, pool, note]
 created: 2026-06-08
 aliases: []
-document.status: open
+document.status: resolved
 ---
 
-# Pool.Tests review — open findings
+# Pool.Tests review — findings
 
-The findings from the `src/Pool.Tests` review that remain valid against the current code, after the SemaphoreSlim redesign landed and the test file was rewritten.
+The test-review findings for `tests/Pool.Tests`, resolved against current code after the SemaphoreSlim redesign and the M4 `TimeProvider` work both landed. Finding IDs are preserved from the original triage. Production-side status: [[docs/notes/pool{t}.findings.md]].
 
-Scope: `tests/Pool.Tests` — `PoolTests.cs`, `NamedPoolTests.cs`, `PoolItemFactoryTests.cs`, `PoolConstructorTests.cs`, `Startup.cs`. Reviewed against `src/Pool`. Finding IDs (I2, I3, M4, …) are preserved from the original triage so cross-references resolve; the gaps in the sequence are the resolved items, dropped here. Line numbers drift — anchor by symbol name.
+Verification: `dotnet test` green (80 tests); coverage 100/92.85/100 line/branch/method over the 95/90/95 ratchet; `dotnet format --verify-no-changes` clean.
 
-Resolved and dropped (verified closed against current code): I1 (Clear contract — doc corrected, split tests added), I4 (preparation-failure and mid-seed factory-throw regressions added), N1 (queued test now awaits the hand-off), N4 (project moved to xUnit v3 and threads `TestContext.Current.CancellationToken`), M2 (named-pool feature now has behavioral coverage), plus the disposed-pool, factory-per-key-caching, and named-pool-options coverage gaps. Production-side resolution is tracked in [[docs/notes/pool{t}.findings.md]].
+## Resolved
 
----
+- I2 — deleted the dead `PoolOptions:PreparationRequired` key from `Startup.cs` and `NamedPoolTests.cs`.
+- I3 — dropped the culture-dependent `Assert.Contains("A task was canceled.")` from `Queued_Request_Times_Out`, `NeverExceeds_MaxSize`, and `Lease_Times_Out_Deterministically_When_Capacity_Stays_Saturated`; the `ThrowsAsync<TaskCanceledException>` assertion stands.
+- I5 — `Concurrent_Leases_Are_Handled` asserts `instances.Distinct().Count() == 10` (no item handed to two leasers).
+- M1 — `PoolTests` injects the registered `PoolOptions` (`configuredOptions`); `Allocated_Matches_Min` and the cap assertions read `MinSize`/`MaxSize` instead of literals.
+- M3 — `Preparation_Strategy_Is_Applied` uses `CountingEchoPreparationStrategy` to assert `PrepareAsync` ran once for an unprepared item and zero times for an already-ready one.
+- M4 — resolved by the parallel session: idle, lease, and preparation timeouts are all `TimeProvider`/CTS-driven, with deterministic `FakeTimeProvider` tests. See [[docs/notes/pool{t}.findings.md]] and [[docs/notes/semaphoreslim-replaces-pool-lease-rendezvous.md]].
+- M5 — `PoolItemFactory_Doesnt_Crash_On_Dispose` asserts no-throw via `Record.Exception` and that the item is disposed.
+- M6 — the two real-wait timeout tests now prove distinct intents: `Queued_Request_Times_Out` asserts the backlog is purged (`QueuedLeases == 0`); `NeverExceeds_MaxSize` asserts the cap held (`ItemsAllocated == MaxSize`).
+- N2 — removed the superfluous `Task.Delay(10)` from `Idle_Timeout_Removes_Items` (eviction is elapsed-time-independent at `IdleTimeout = 0`).
+- N3 — renamed `Queued_Request_Timesout` → `Queued_Request_Times_Out`.
 
-## Important
+Coverage gaps closed:
 
-### I2 — dead config key `PoolOptions:PreparationRequired`
+- Constructor null guards — `Ctor_Null_ItemFactory_Throws`, `Ctor_Null_Logger_Throws`, `Ctor_Null_Metrics_Throws` in `PoolConstructorTests`.
+- `Release(null)` — `Release_Null_Throws` in `PoolTests`.
+- Lease-time factory throw — `Lease_Releases_Permit_When_Factory_Throws` asserts the permit is released and counts stay unchanged.
+- Metrics — new `MetricsTests` uses `MetricCollector<T>` (per-test `IMeterFactory` + `DefaultPoolMetrics`) to assert the `lease_wait_time`, `item_preparation_time`, `lease_exception`, and `preparation_exception` instruments. The `// todo` is gone and the preparation-failure metric gap is covered.
 
-Where: `Startup.cs` (in-memory config dict) and `NamedPoolTests.NamedPool_Registration_Succeeds`.
+## Deferred — cosmetic
 
-Issue: both set `PoolOptions:PreparationRequired = "true"`, but `PoolOptions` has no such property; the binder drops the unknown key silently. Preparation is gated by whether a strategy is registered (`isPreparationRequired = preparationStrategy is not null`), not by config. The setup encodes a belief in a switch that does not exist.
-
-Fix: delete the key from both files.
-
-### I3 — brittle assertion on BCL exception text
-
-Where: `PoolTests.Queued_Request_Timesout` and `PoolTests.NeverExceeds_MaxSize`.
-
-Issue: both assert `Assert.Contains("A task was canceled.", exception.Message)`. That string is owned by the .NET BCL and is culture-dependent — it breaks under localization or a framework message change, and it does not prove why the task canceled.
-
-Fix: drop the message assertion; keep `await Assert.ThrowsAsync<TaskCanceledException>(...)`. The original "surface a distinct `TimeoutException`" suggestion is closed — the SemaphoreSlim redesign deliberately keeps `TaskCanceledException` as the v6 contract (see [[docs/notes/semaphoreslim-replaces-pool-lease-rendezvous.md]]), so removing the message check is the whole fix.
-
-### I5 — concurrency test never asserts items are distinct
-
-Where: `PoolTests.Concurrent_Leases_Are_Handled`.
-
-Issue: the test leases 10 items and asserts `ActiveLeases == 10`, but never that the 10 returned instances are distinct. A pool that handed the same object to two leasers would pass. "Do not hand the same item to two callers" is the pool's core guarantee, and it stays unasserted — the newer `Lease_Does_Not_Lose_Wakeups_Under_Concurrency` exercises a single slot, so it does not cover distinctness either.
-
-Fix: `Assert.Equal(10, instances.Distinct().Count());` (reference equality is correct). Optionally assert growth from `MinSize` (5) toward 10.
-
----
-
-## Moderate
-
-### M1 — magic literals in container-injected tests
-
-Where: `PoolTests.Allocated_Matches_Min` asserts `== 1`; the timeout and max-size tests depend on `MaxSize == 2` and `LeaseTimeout == 10ms` from `Startup`. Tests that build `PoolOptions` inline are self-documenting and exempt; this is only the container-injected facts.
-
-Issue: the test name says "Matches_Min" but the body asserts the literal `1`, with the link to `MinSize` left implicit. Change `Startup` and these break with no obvious cause.
-
-Fix: inject the registered `PoolOptions` singleton and assert against it — `Assert.Equal(options.MinSize, pool.ItemsAllocated)`.
-
-### M3 — `Preparation_Strategy_Is_Applied` asserts indirectly
-
-Where: `PoolTests.Preparation_Strategy_Is_Applied`.
-
-Issue: the test leases, then re-runs `preparationStrategy.IsReadyAsync(instance, ...)`. It observes the strategy's verdict rather than the pool invoking it, so it would pass even if the item arrived ready and `PrepareAsync` was never called — the name overstates what it proves.
-
-Fix: use a spy strategy that counts `PrepareAsync` invocations; assert exactly one call for an unprepared item and zero for an already-ready one.
-
-### M4 — production reads wall-clock; time is not injectable — RESOLVED
-
-Where (was): production — `Pool<TPoolItem>.PoolItem.IdleTime` (`DateTime.UtcNow`), `EnsurePreparedAsync` (`new CancellationTokenSource(preparationTimeout)`), the lease wait (`gate.WaitAsync(leaseTimeout)`), and the `Stopwatch` lease/prep metric timers. Tests — `Idle_Timeout_Removes_Items` and the timeout family.
-
-Issue (was): time could not be controlled from a test, so idle, lease, and preparation-timeout tests leaned on real waits (`Task.Delay`, a real `LeaseTimeout`) — the classic CI flake. Also flagged production-side in [[docs/notes/pool{t}.findings.md]].
-
-Resolved: `Pool<T>` takes an optional `TimeProvider` (trailing ctor param, defaults to `TimeProvider.System`, contract unchanged). All clock reads route through it — idle stamping/eviction (`timeProvider.GetUtcNow()`, `IdleSince` now a `DateTimeOffset`), the lease timeout (`CancellationTokenSource(leaseTimeout, timeProvider)` linked with the caller's token, since `SemaphoreSlim.WaitAsync` has no `TimeProvider` overload; still surfaces `TaskCanceledException`), the preparation timeout (`CancellationTokenSource(preparationTimeout, timeProvider)`), and the metric timers (`GetTimestamp()`/`GetElapsedTime()` replacing `Stopwatch`). Deterministic `FakeTimeProvider` tests (`Microsoft.Extensions.TimeProvider.Testing`) replace the real waits: `Idle_Item_Past_Timeout_Is_Disposed_And_Fresh_One_Served`, `Lease_Times_Out_Deterministically_When_Capacity_Stays_Saturated`, `Preparation_Times_Out_Deterministically_When_Strategy_Stalls` (uses the `BlockingEchoPreparationStrategy` fake). The legacy zero-timeout `Idle_Timeout_Removes_Items` is left in place.
-
-### M5 — `PoolItemFactory_Doesnt_Crash_On_Dispose` name/assertion mismatch
-
-Where: `PoolItemFactoryTests`.
-
-Issue: the test is named for dispose-safety but its only assertion is `Assert.NotNull(item)`. The behavior under test — disposing the pool and the factory scope does not throw, and the item tolerates double-dispose — is only an implicit no-throw.
-
-Fix: `var ex = Record.Exception(() => { pool.Dispose(); factory.Dispose(); }); Assert.Null(ex);` and assert the item is disposed afterward.
-
-### M6 — near-duplicate timeout tests
-
-Where: `PoolTests.Queued_Request_Timesout` and `PoolTests.NeverExceeds_MaxSize`.
-
-Issue: both lease to `MaxSize` and assert the next lease throws `TaskCanceledException`. `NeverExceeds_MaxSize` now also asserts `ActiveLeases == 2`, but the two still largely prove the same thing.
-
-Fix: split the intents — one proves a queued request times out and is purged (`QueuedLeases` returns to 0 after); the other proves the pool never allocates beyond `MaxSize` (no third item created).
-
----
-
-## Minor / nits
-
-### N2 — superfluous `Task.Delay(10)`
-
-Where: `PoolTests.Idle_Timeout_Removes_Items`.
-
-Issue: with `IdleTimeout = 0`, the item is evicted on the next dequeue regardless of elapsed time, so the delay implies a timing dependency that is not real.
-
-Fix: remove it, or replace with `FakeTimeProvider` advancement (see M4).
-
-### N3 — typo in test name
-
-Where: `PoolTests.Queued_Request_Timesout`.
-
-Fix: rename to `Queued_Request_Times_Out`.
-
-### N5 — static `ILoggerFactory` never disposed
-
-Where: `PoolTests` and `PoolItemFactoryTests` static fields.
-
-Issue: a disposable held for the process lifetime. Harmless for a test process.
-
-Fix (optional): move to an `IDisposable` fixture if these grow.
-
-### N6 — initial-state facts could consolidate
-
-Where: `PoolTests` — `Pool_Is_Injected`, `Allocated_Matches_Min`, `Available_Matches_Allocated`, `Backlog_Is_Empty`, `Name_Is_TypeName_Dot_Pool`.
-
-Fix (optional): fold into one `Fresh_Pool_Has_Expected_Initial_State` AAA test stating the initial-state contract in one place.
-
----
-
-## Coverage gaps (owned behavior with no test)
-
-- Constructor null-guards. The ctor runs `ArgumentNullException.ThrowIfNull` on `itemFactory`, `logger`, and `metrics`, but `PoolConstructorTests` covers only the range guards (`MaxSize < 1`, negative `MinSize`) and the factory-throw-mid-seed path. Add an `Assert.Throws<ArgumentNullException>` per null param.
-- `Release(null)`. `Release` opens with `ArgumentNullException.ThrowIfNull(item)` — no test exercises it.
-- Lease-time factory throw. `Ctor_Disposes_Already_Created_Items_When_Factory_Throws_Mid_Seed` covers a throw during construction, but a throw from `itemFactory.CreateItem()` inside `TryAcquireItem` (on the lease path) has no dedicated test. `LeaseAsync`'s catch releases the permit and `RecordLeaseException` fires, so afterward `ItemsAllocated` and `ActiveLeases` should be unchanged. The shared permit-release path is exercised indirectly by the preparation-failure test; the factory-throw trigger is not.
-- Preparation-failure metric. `Preparation_Failure_Discards_Item_And_Serves_Fresh_One` asserts dispose, rethrow, and a fresh item served, but not that `RecordPreparationException` fired. Add a capturing-metrics assertion.
-- Metrics counters (the `// todo` in `PoolTests`). The utilization observer is covered by `Utilization_Rate_Observer_Reports_Active_Over_Allocated`; the lease-wait, preparation-time, and exception counters via `MetricCollector<T>` remain untested. Give each metrics test its own `DefaultPoolMetrics` / `IMeterFactory` — `IPoolMetrics` is a singleton and every `Pool<T>` ctor re-registers observers on it, so a shared instance cross-contaminates.
+- N5 — the static `ILoggerFactory` in `PoolTests`/`PoolItemFactoryTests` is never disposed. Harmless for a test process; closing it would mean an `IDisposable` fixture. Left as-is.
+- N6 — the five initial-state facts (`Pool_Is_Injected`, `Allocated_Matches_Min`, `Available_Matches_Allocated`, `Backlog_Is_Empty`, `Name_Is_TypeName_Dot_Pool`) could fold into one `Fresh_Pool_Has_Expected_Initial_State`. Doing so reduces per-fact failure granularity; left as separate facts.

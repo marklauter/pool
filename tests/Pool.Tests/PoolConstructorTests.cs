@@ -43,4 +43,22 @@ public sealed class PoolConstructorTests(IPoolMetrics metrics)
         Assert.Equal(2, factory.CreatedItems.Count);
         Assert.All(factory.CreatedItems, item => Assert.True(item.IsDisposed()));
     }
+
+    [Fact]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP005:Return type should indicate that the value should be disposed", Justification = "the constructor throws; no pool is constructed to dispose")]
+    public void Ctor_Null_ItemFactory_Throws() =>
+        Assert.Throws<ArgumentNullException>(
+            () => new Pool<IEcho>(null!, Logger, metrics, new PoolOptions()));
+
+    [Fact]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP005:Return type should indicate that the value should be disposed", Justification = "the constructor throws; no pool is constructed to dispose")]
+    public void Ctor_Null_Logger_Throws() =>
+        Assert.Throws<ArgumentNullException>(
+            () => new Pool<IEcho>(new EchoFactory(), null!, metrics, new PoolOptions()));
+
+    [Fact]
+    [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP005:Return type should indicate that the value should be disposed", Justification = "the constructor throws; no pool is constructed to dispose")]
+    public void Ctor_Null_Metrics_Throws() =>
+        Assert.Throws<ArgumentNullException>(
+            () => new Pool<IEcho>(new EchoFactory(), Logger, null!, new PoolOptions()));
 }
