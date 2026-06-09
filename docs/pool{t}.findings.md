@@ -28,6 +28,7 @@ document.status: draft
 - **I8 — lease-wait metric timing.** The queued path now `await`s the hand-off, *then* calls `RecordLeaseWaitTime`, so the metric captures the real queue wait rather than only the time up to enqueue.
 - **I1 (lost-wakeup) and I7 (cancel/hand-off race) — eliminated by the SemaphoreSlim redesign.** `LeaseAsync`/`Release` no longer rendezvous two queues through a hand-rolled `LeaseRequest` (TCS + linked CTSs). Capacity is now a single `SemaphoreSlim(maxSize, maxSize)` — a permit is the right to one item — plus the one idle `ConcurrentQueue`. With one structure there is no second queue to fall out of sync with (I1 gone), and no TCS to race a result against a cancel (I7 gone). The lease timeout still surfaces as `TaskCanceledException` (zero observable change — `WaitAsync`-returns-`false` is translated back to it). Regression test `Lease_Does_Not_Lose_Wakeups_Under_Concurrency` is red on the old rendezvous (a waiter times out under a Barrier-aligned release/queue collision) and green on the semaphore. The ~120-line `LeaseRequest` class and the two `CA2000` suppressions that vouched for its disposal are deleted.
   - **Derived counters (bonus).** `itemsAllocated` and its `Lock` are gone: `ActiveLeases = maxSize - gate.CurrentCount`, `ItemsAvailable = pool.Count`, `ItemsAllocated = ActiveLeases + ItemsAvailable`. The counters cannot desync from the items because they are computed from live state — which retires the old Clear count-clobber concern entirely. `QueuedLeases` is the one explicit counter the semaphore hides (`Interlocked`, incremented only on the contended slow path).
+- **I4 — resource leak on a mid-seed factory failure during construction.** The constructor seeded with `pool = new(CreateItems(initialSize).Select(PoolItem.Create))`, assigning `pool` only once the whole expression completed — so if the *k*-th `itemFactory.CreateItem()` threw, the items already created were abandoned undisposed (leaked sockets for a disposable `TPoolItem`). Now the ctor assigns `pool` to an empty queue **first**, seeds it through the restored lazy `CreateItems` (`yield`) iterator, and on any throw calls `DrainPoolAndDisposeItems()` before rethrowing — the same drain-and-dispose path `Clear`/`Dispose` use. `gate` is constructed only after seeding succeeds, so a failed construction also abandons no `SemaphoreSlim`. `Clear`'s reseed loop was already leak-safe (it enqueues each item immediately, so partials live in `pool` and are reclaimed by the next `Clear`/`Dispose`). Regression test `Ctor_Disposes_Already_Created_Items_When_Factory_Throws_Mid_Seed` (red before, green after).
 
 ---
 
@@ -47,10 +48,7 @@ Tests: `Clear_Disposes_Idle_Items_And_Refills_With_Fresh_Ones` and `Clear_Does_N
 
 ## Open — Important
 
-### I4. Resource leak if item creation throws during construction
-The constructor eagerly fills the pool: `pool = new(CreateItems(initialSize).Select(PoolItem.Create))`. `CreateItems` builds an eager `List` by calling `itemFactory.CreateItem()` `initialSize` times. If the *k*-th call throws, items 1…k-1 are created but the list/queue is never assigned to `pool` — so they're never `Dispose()`d. For a disposable item (a `SmtpClient`) that leaks sockets on a failed construction. (The same applies to `Clear`'s reseed loop, which enqueues fresh items one at a time; a mid-loop throw leaves earlier ones safely pooled, but a throw on the *first* leaves none leaked.)
-
-- **Suggestion:** materialize the initial items in a try/catch that disposes anything already created before rethrowing.
+_None — all important findings are resolved._
 
 ---
 
@@ -70,6 +68,5 @@ The constructor eagerly fills the pool: `pool = new(CreateItems(initialSize).Sel
 - **`DateTime.UtcNow` in `PoolItem`.** Not `TimeProvider`-based, so idle-timeout logic isn't deterministically testable (also flagged as `test-findings.md` M4).
 - **Derived counters are composite non-atomic reads.** `ActiveLeases` reads `gate.CurrentCount`, and `ItemsAllocated` adds `pool.Count`, read separately — so the counters can be transiently inconsistent under concurrency (e.g. `Release` enqueues before releasing the permit, so `ItemsAllocated` briefly over-counts by one). Metrics-only impact.
 - **Idle eviction is lazy only** (`TryDequeue` in `TryAcquireItem`). An item past `idleTimeout` is disposed only when someone next tries to dequeue it; nothing reaps idle items proactively.
-- **Utilization observer is uncovered.** The `RegisterUtilizationRateObserver` lambda's `ItemsAllocated == 0 ? 0 : …` branch isn't exercised (no metrics test polls it); covered by the future metrics-test `todo`.
 
 **Resolved nits:** `IsNotExpired()` (gone with `LeaseRequest`); `[MethodImpl(AggressiveInlining)]` dropped from `Release`; `ItemsAvailable => pool?.Count ?? 0` simplified to `pool.Count` after the ctor reorder.

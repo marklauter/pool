@@ -3,7 +3,6 @@ title: Replaced Pool's lease/release rendezvous with a SemaphoreSlim
 summary: The hand-rolled LeaseRequest/TaskCompletionSource rendezvous across two ConcurrentQueues collapsed to one SemaphoreSlim capacity gate plus an idle queue, making the I1 lost-wakeup and I7 cancel/hand-off races unrepresentable; it landed behind a failing-first concurrency test, deleting ~120 lines and the two CA2000 suppressions that only vouched for the old machinery.
 tags: [pool, concurrency, refactor, journal, semaphoreslim]
 created: 2026-06-08
-aliases: []
 ---
 
 # Replaced Pool's lease/release rendezvous with a SemaphoreSlim

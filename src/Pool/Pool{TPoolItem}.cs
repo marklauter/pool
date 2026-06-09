@@ -76,7 +76,6 @@ public sealed class Pool<TPoolItem>
     /// <param name="preparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></param>
     /// <param name="options"><see cref="PoolOptions"/></param>
     /// <exception cref="ArgumentNullException"></exception>
-    [SuppressMessage("Style", "IDE0306:Simplify collection initialization", Justification = "no it can't")]
     public Pool(
         IItemFactory<TPoolItem> itemFactory,
         ILogger<Pool<TPoolItem>> logger,
@@ -107,9 +106,24 @@ public sealed class Pool<TPoolItem>
         idleTimeout = options.IdleTimeout;
         preparationTimeout = options.PreparationTimeout;
 
+        // seed the idle pool first so a factory failure mid-seed disposes what it already created
+        // (I4) and leaves no SemaphoreSlim behind: the gate is built only once seeding succeeds
+        pool = new();
+        try
+        {
+            foreach (var item in CreateItems(initialSize))
+            {
+                pool.Enqueue(PoolItem.Create(item));
+            }
+        }
+        catch
+        {
+            DrainPoolAndDisposeItems();
+            throw;
+        }
+
         // one permit per unit of capacity; the leased count can never exceed maxSize
         gate = new SemaphoreSlim(maxSize, maxSize);
-        pool = new(CreateItems(initialSize).Select(PoolItem.Create));
 
         // counters are derived from gate + pool, so register the observers once both exist
         this.metrics.RegisterItemsAllocatedObserver(() => ItemsAllocated);
@@ -245,15 +259,12 @@ public sealed class Pool<TPoolItem>
         }
     }
 
-    private List<TPoolItem> CreateItems(int count)
+    private IEnumerable<TPoolItem> CreateItems(int count)
     {
-        var items = new List<TPoolItem>(count);
         for (var i = 0; i < count; i++)
         {
-            items.Add(itemFactory.CreateItem());
+            yield return itemFactory.CreateItem();
         }
-
-        return items;
     }
 
     /// <remarks>a permit is held, so the caller is entitled to exactly one item: a valid idle one, or a fresh one.</remarks>
