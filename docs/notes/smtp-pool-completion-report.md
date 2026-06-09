@@ -81,7 +81,7 @@ A suite has **landed** in `tests/Smtp.Pool.Tests` (41 tests, xUnit v3 + NSubstit
 
 Coverage is scoped to `[Smtp.Pool]*` with the ratchet started at `0,0,0` (raise as the sample grows). NSubstitute, ArchUnitNET, and `Microsoft.Extensions.TimeProvider.Testing` are referenced via CPM; the test-naming and `CA1515` (public test classes) carve-outs are centralized in the `.Tests`-gated section of `Directory.Build.props`. Still to do:
 
-- **Integration**: against a containerized SMTP sink — `smtp4dev`, `Papercut`, or `MailHog` via `Testcontainers` — proving real connect/auth/send and reconnect-after-drop.
+- **Integration** *(landed)*: `tests/Smtp.Pool.Integration.Tests` spins up **smtp4dev** via **Testcontainers** (mirroring the `DynamoDbLite.Parity.Tests` fixture/collection pattern), drives a message through the real pool (lease → connect → AUTH → `SendAsync`), and verifies receipt by reading it back over **IMAP with MailKit**. Runs in a dedicated `integration-tests` CI job (ubuntu-latest has Docker; Testcontainers manages the container) — green on Debug and Release. Still to extend: STARTTLS variant, and recycle-against-a-real-server (low `MaxMessagesPerConnection`, assert a new SMTP session via smtp4dev's session API).
 - **Concurrency**: prove exclusive use (no connection handed to two leasers mid-send) under parallel load.
 
 ### 7. Pool-library hooks the SMTP case surfaces (most valuable findings)
