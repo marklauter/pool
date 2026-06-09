@@ -21,8 +21,8 @@ public sealed class SmtpClientPreparationStrategyTests
     public async Task IsReadyAsync_Returns_True_When_Connected_Authenticated_And_NoOp_Succeeds()
     {
         using var transport = Substitute.For<IMailTransport>();
-        transport.IsConnected.Returns(true);
-        transport.IsAuthenticated.Returns(true);
+        _ = transport.IsConnected.Returns(true);
+        _ = transport.IsAuthenticated.Returns(true);
 
         var ready = await CreateStrategy().IsReadyAsync(transport, CancellationToken.None);
 
@@ -41,8 +41,8 @@ public sealed class SmtpClientPreparationStrategyTests
     public async Task IsReadyAsync_Returns_False_When_Not_Connected()
     {
         using var transport = Substitute.For<IMailTransport>();
-        transport.IsConnected.Returns(false);
-        transport.IsAuthenticated.Returns(true);
+        _ = transport.IsConnected.Returns(false);
+        _ = transport.IsAuthenticated.Returns(true);
 
         var ready = await CreateStrategy().IsReadyAsync(transport, CancellationToken.None);
 
@@ -53,8 +53,8 @@ public sealed class SmtpClientPreparationStrategyTests
     public async Task IsReadyAsync_Returns_False_When_Not_Authenticated()
     {
         using var transport = Substitute.For<IMailTransport>();
-        transport.IsConnected.Returns(true);
-        transport.IsAuthenticated.Returns(false);
+        _ = transport.IsConnected.Returns(true);
+        _ = transport.IsAuthenticated.Returns(false);
 
         var ready = await CreateStrategy().IsReadyAsync(transport, CancellationToken.None);
 
@@ -65,9 +65,9 @@ public sealed class SmtpClientPreparationStrategyTests
     public async Task IsReadyAsync_Returns_False_When_NoOp_Throws()
     {
         using var transport = Substitute.For<IMailTransport>();
-        transport.IsConnected.Returns(true);
-        transport.IsAuthenticated.Returns(true);
-        transport.NoOpAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("dropped"));
+        _ = transport.IsConnected.Returns(true);
+        _ = transport.IsAuthenticated.Returns(true);
+        _ = transport.NoOpAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("dropped"));
 
         var ready = await CreateStrategy().IsReadyAsync(transport, CancellationToken.None);
 
@@ -89,4 +89,14 @@ public sealed class SmtpClientPreparationStrategyTests
     public async Task PrepareAsync_Throws_When_Item_Is_Null() =>
         await Assert.ThrowsAsync<ArgumentNullException>(
             async () => await CreateStrategy().PrepareAsync(null!, CancellationToken.None));
+
+    [Fact]
+    public void Ctor_Null_HostOptions_Throws() =>
+        Assert.Throws<ArgumentNullException>(
+            () => new SmtpClientPreparationStrategy(null!, Options.Create(new SmtpClientCredentials())));
+
+    [Fact]
+    public void Ctor_Null_Credentials_Throws() =>
+        Assert.Throws<ArgumentNullException>(
+            () => new SmtpClientPreparationStrategy(Options.Create(new SmtpHostOptions()), null!));
 }

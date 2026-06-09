@@ -14,4 +14,8 @@
 		<ProjectReference Include="..\..\src\Pool\Pool.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<InternalsVisibleTo Include="Smtp.Pool.Tests" />
+	</ItemGroup>
+
 </Project>

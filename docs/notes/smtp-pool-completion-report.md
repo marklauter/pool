@@ -70,12 +70,19 @@ The sample pools and *prepares* transports but offers no way to actually send ma
 - Structured logging around prepare/connect/auth/send with credential redaction; optional opt-in `ProtocolLogger` for wire-level debugging.
 - Wire both into OpenTelemetry.
 
-### 6. Testing (none exists)
+### 6. Testing
 
-- **Unit**: `SmtpClientFactory` applies `TimeoutMilliseconds`; `SmtpClientPreparationStrategy` ready/not-ready/reconnect-guard logic against a faked `IMailTransport` (NSubstitute) — including the half-open re-prepare path from §1.
+An initial unit suite has **landed** in `tests/Smtp.Pool.Tests` (16 tests, xUnit v3 + NSubstitute), at 100% line/branch/method over the `Smtp.Pool` assembly:
+
+- `SmtpClientFactory` — returns an `SmtpClient`, applies `TimeoutMilliseconds`, null-guards its options.
+- `SmtpClientPreparationStrategy` — the full `IsReadyAsync` truth table (null / not-connected / not-authenticated / NOOP-throws / ready), `PrepareAsync` connect+authenticate with the configured values, and ctor null-guards — all against a faked `IMailTransport`.
+- `AddSmtpClientPool` — registers pool/factory/strategy, honors the configure override, null-guards `services`/`configuration`.
+
+Coverage is scoped to `[Smtp.Pool]*` with the ratchet started at `0,0,0` (raise as the sample grows). NSubstitute was added to CPM; the test-naming and `CA1515` (public test classes) carve-outs were centralized into the `.Tests`-gated section of `Directory.Build.props`. Still to do:
+
+- **Behavioral regression**: a test pinning the half-open re-prepare bug from §1 — write it red first; it will pass once the reconnect guard lands.
 - **Integration**: against a containerized SMTP sink — `smtp4dev`, `Papercut`, or `MailHog` via `Testcontainers` — proving real connect/auth/send and reconnect-after-drop.
 - **Concurrency**: prove exclusive use (no client handed to two leasers mid-send) under parallel load.
-- Coverage today is scoped to `[Pool]*` and keyed off `.Tests` projects, so the sample is excluded — a `Smtp.Pool.Tests` project would need its own include/threshold wiring.
 
 ### 7. Pool-library hooks the SMTP case surfaces (most valuable findings)
 
@@ -95,7 +102,7 @@ These are arguably worth their own issues against the Pool library — the SMTP 
 |---|---|---|
 | **P0 — Correctness** | Fix `PrepareAsync` reconnect guards (§1); make auth optional | ~0.5 day |
 | **P1 — Make it send** | MimeKit dep, `PooledSmtpSender` typed client, lease-scope guard, send-error classification (§2) | ~1 day |
-| **P2 — Tests** | Unit (faked transport) + integration (smtp4dev/Testcontainers) + concurrency (§6) | ~1.5 days |
+| **P2 — Tests** | Unit suite (faked transport) **landed**; add the §1 regression test, integration (smtp4dev/Testcontainers), concurrency (§6) | ~1 day remaining |
 | **P3 — Security** | `SecureSocketOptions` + cert callback; OAuth2 SASL; secret-store binding (§3) | ~1.5 days |
 | **P4 — Resilience** | Polly retry, connection recycling, finite lease timeout, NOOP-probe tuning (§4) | ~1 day |
 | **P5 — Observability** | App-level SMTP metrics + structured logging + OTel (§5) | ~0.5 day |

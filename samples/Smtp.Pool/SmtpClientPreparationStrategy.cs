@@ -10,7 +10,8 @@ namespace Smtp.Pool;
 /// is reused if it is still connected, authenticated, and responsive to NOOP; otherwise the pool
 /// calls <see cref="PrepareAsync"/> to (re)connect and authenticate.
 /// </summary>
-public sealed class SmtpClientPreparationStrategy(
+[SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Instantiated by the DI container via AddPreparationStrategy in SmtpClientPoolServiceCollectionExtensions.")]
+internal sealed class SmtpClientPreparationStrategy(
     IOptions<SmtpHostOptions> hostOptions,
     IOptions<SmtpClientCredentials> credentials)
     : IPreparationStrategy<IMailTransport>
