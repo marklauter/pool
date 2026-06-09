@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Pool.Metrics;
 using Pool.Tests.Fakes;
 using System.Diagnostics.CodeAnalysis;
@@ -149,6 +150,34 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics)
         _ = await pool.LeaseAsync(CancellationToken.None);
 
         Assert.True(instance.IsDisposed());
+    }
+
+    [Fact]
+    public async Task Idle_Item_Past_Timeout_Is_Disposed_And_Fresh_One_Served()
+    {
+        // a controllable clock makes idle expiry deterministic: no Task.Delay, no wall-clock race (M4)
+        var timeProvider = new FakeTimeProvider();
+        var options = new PoolOptions
+        {
+            MinSize = 0,
+            MaxSize = 1,
+            UseDefaultFactory = false,
+            UseDefaultPreparationStrategy = false,
+            IdleTimeout = TimeSpan.FromMinutes(5),
+        };
+
+        using var pool = new Pool<IEcho>(new EchoFactory(), Logger, metrics, options, timeProvider);
+
+        // lease then return so a single known instance sits idle, stamped at the fake clock's current time
+        var instance = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+        pool.Release(instance);
+
+        // push the clock past the idle timeout; the next lease must evict (dispose) the stale item and serve fresh
+        timeProvider.Advance(TimeSpan.FromMinutes(6));
+        var fresh = await pool.LeaseAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(instance.IsDisposed());
+        Assert.NotSame(instance, fresh);
     }
 
     [Fact]

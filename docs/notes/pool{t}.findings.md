@@ -65,8 +65,7 @@ _None — all important findings are resolved._
 
 ## Minor / nits  *(line numbers approximate)*
 
-- **`DateTime.UtcNow` in `PoolItem`.** Not `TimeProvider`-based, so idle-timeout logic isn't deterministically testable (also flagged as `pool-tests.findings.md` M4).
 - **Derived counters are composite non-atomic reads.** `ActiveLeases` reads `gate.CurrentCount`, and `ItemsAllocated` adds `pool.Count`, read separately — so the counters can be transiently inconsistent under concurrency (e.g. `Release` enqueues before releasing the permit, so `ItemsAllocated` briefly over-counts by one). Metrics-only impact.
 - **Idle eviction is lazy only** (`TryDequeue` in `TryAcquireItem`). An item past `idleTimeout` is disposed only when someone next tries to dequeue it; nothing reaps idle items proactively.
 
-**Resolved nits:** `IsNotExpired()` (gone with `LeaseRequest`); `[MethodImpl(AggressiveInlining)]` dropped from `Release`; `ItemsAvailable => pool?.Count ?? 0` simplified to `pool.Count` after the ctor reorder.
+**Resolved nits:** `IsNotExpired()` (gone with `LeaseRequest`); `[MethodImpl(AggressiveInlining)]` dropped from `Release`; `ItemsAvailable => pool?.Count ?? 0` simplified to `pool.Count` after the ctor reorder. **`DateTime.UtcNow` in `PoolItem` (was M4, idle portion):** the idle clock now reads an injected `TimeProvider` (optional trailing ctor param, defaults to `TimeProvider.System`; `PoolItem` stamps and is judged against `timeProvider.GetUtcNow()`), so idle-timeout eviction is deterministically testable — regression test `Idle_Item_Past_Timeout_Is_Disposed_And_Fresh_One_Served` advances a `FakeTimeProvider`. The lease-timeout (`gate.WaitAsync(leaseTimeout)` — `SemaphoreSlim` has no `TimeProvider` overload) and preparation-timeout (`new CancellationTokenSource(preparationTimeout)`) still read wall-clock; see `pool-tests.findings.md` M4.

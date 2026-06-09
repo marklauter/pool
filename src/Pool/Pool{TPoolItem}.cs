@@ -14,11 +14,12 @@ public sealed class Pool<TPoolItem>
     where TPoolItem : class
 {
     private readonly record struct PoolItem(
-        DateTime IdleSince,
+        DateTimeOffset IdleSince,
         TPoolItem Item)
     {
-        public static PoolItem Create(TPoolItem item) => new(DateTime.UtcNow, item);
-        public TimeSpan IdleTime => DateTime.UtcNow - IdleSince;
+        // the clock read is the caller's: the pool passes timeProvider.GetUtcNow() so the struct
+        // stays clock-free and idle expiry is deterministically testable (a FakeTimeProvider drives it)
+        public static PoolItem Create(DateTimeOffset now, TPoolItem item) => new(now, item);
     }
 
     private static readonly bool IsPoolItemDisposable = typeof(TPoolItem).GetInterface(nameof(IDisposable), true) is not null;
@@ -46,6 +47,7 @@ public sealed class Pool<TPoolItem>
     private readonly TimeSpan preparationTimeout;
     private bool disposed;
     private readonly IPoolMetrics metrics;
+    private readonly TimeProvider timeProvider;
 
     /// <summary>
     /// PoolName is the name of the pool in the form $"{typeof(TPoolItem).Name}.Pool"
@@ -59,12 +61,14 @@ public sealed class Pool<TPoolItem>
     /// <param name="itemFactory"><see cref="IItemFactory{TPoolItem}"/></param>
     /// <param name="logger"></param>
     /// <param name="options"><see cref="PoolOptions"/></param>
+    /// <param name="timeProvider">clock for idle-timeout tracking; defaults to <see cref="TimeProvider.System"/></param>
     public Pool(
         IItemFactory<TPoolItem> itemFactory,
         ILogger<Pool<TPoolItem>> logger,
         IPoolMetrics metrics,
-        PoolOptions options)
-        : this(itemFactory, logger, metrics, null, options)
+        PoolOptions options,
+        TimeProvider? timeProvider = null)
+        : this(itemFactory, logger, metrics, null, options, timeProvider)
     { }
 
     /// <summary>
@@ -75,13 +79,15 @@ public sealed class Pool<TPoolItem>
     /// <param name="logger"></param>
     /// <param name="preparationStrategy"><see cref="IPreparationStrategy{TPoolItem}"/></param>
     /// <param name="options"><see cref="PoolOptions"/></param>
+    /// <param name="timeProvider">clock for idle-timeout tracking; defaults to <see cref="TimeProvider.System"/></param>
     /// <exception cref="ArgumentNullException"></exception>
     public Pool(
         IItemFactory<TPoolItem> itemFactory,
         ILogger<Pool<TPoolItem>> logger,
         IPoolMetrics metrics,
         IPreparationStrategy<TPoolItem>? preparationStrategy,
-        PoolOptions options)
+        PoolOptions options,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(itemFactory);
         ArgumentNullException.ThrowIfNull(logger);
@@ -95,6 +101,7 @@ public sealed class Pool<TPoolItem>
         this.itemFactory = itemFactory;
         this.logger = logger;
         this.metrics = metrics;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
 
         isPreparationRequired = preparationStrategy is not null;
         this.preparationStrategy = preparationStrategy;
@@ -113,7 +120,7 @@ public sealed class Pool<TPoolItem>
         {
             foreach (var item in CreateItems(initialSize))
             {
-                pool.Enqueue(PoolItem.Create(item));
+                pool.Enqueue(PoolItem.Create(this.timeProvider.GetUtcNow(), item));
             }
         }
         catch
@@ -235,7 +242,7 @@ public sealed class Pool<TPoolItem>
         using var logscope = logger.BeginScope("{PoolName}.{Method}:{Id}", PoolName, nameof(Release), Guid.NewGuid());
 
         // make the item available before returning the permit so a woken waiter always finds it
-        pool.Enqueue(PoolItem.Create(item));
+        pool.Enqueue(PoolItem.Create(timeProvider.GetUtcNow(), item));
         _ = gate.Release();
         logger.LogDebug("returned item to the pool");
     }
@@ -255,7 +262,7 @@ public sealed class Pool<TPoolItem>
         var seed = Math.Min(initialSize, gate.CurrentCount);
         for (var i = 0; i < seed; i++)
         {
-            pool.Enqueue(PoolItem.Create(itemFactory.CreateItem()));
+            pool.Enqueue(PoolItem.Create(timeProvider.GetUtcNow(), itemFactory.CreateItem()));
         }
     }
 
@@ -270,16 +277,18 @@ public sealed class Pool<TPoolItem>
     /// <remarks>a permit is held, so the caller is entitled to exactly one item: a valid idle one, or a fresh one.</remarks>
     private TPoolItem TryAcquireItem()
     {
+        // one clock read drives the whole dequeue scan, so every candidate is judged against the same now
+        var now = timeProvider.GetUtcNow();
         while (pool.TryDequeue(out var pooled))
         {
-            if (IdleTimeIsNotExceeded(idleTimeout, pooled))
+            if (IdleTimeIsNotExceeded(idleTimeout, pooled, now))
             {
                 logger.LogDebug("TryAcquireItem {AcquisitionMethod}", "dequeued");
                 return pooled.Item;
             }
 
             logger.LogInformation("{PoolName}.{MethodName} removing expired item, {IdleTimeMs}ms exceeded limit: {IdleTimeoutMs}ms",
-                PoolName, nameof(TryAcquireItem), pooled.IdleTime.TotalMilliseconds, idleTimeout.TotalMilliseconds);
+                PoolName, nameof(TryAcquireItem), (now - pooled.IdleSince).TotalMilliseconds, idleTimeout.TotalMilliseconds);
             DisposeItem(pooled.Item);
         }
 
@@ -287,8 +296,8 @@ public sealed class Pool<TPoolItem>
         return itemFactory.CreateItem();
     }
 
-    private static bool IdleTimeIsNotExceeded(TimeSpan idleTimeout, PoolItem item) =>
-        idleTimeout == Timeout.InfiniteTimeSpan || item.IdleTime < idleTimeout;
+    private static bool IdleTimeIsNotExceeded(TimeSpan idleTimeout, PoolItem item, DateTimeOffset now) =>
+        idleTimeout == Timeout.InfiniteTimeSpan || now - item.IdleSince < idleTimeout;
 
     [SuppressMessage("IDisposableAnalyzers.Correctness", "IDISP007:Don't dispose injected", Justification = "it's all private to pool")]
     private static void DisposeItem(TPoolItem item)
