@@ -6,12 +6,12 @@ using NSubstitute.ExceptionExtensions;
 
 namespace Smtp.Pool.Tests;
 
-public sealed class SmtpReadyCheckTests
+public sealed class SmtpConnectionPreparationStrategyTests
 {
     private static readonly SmtpHostOptions Host = new() { Host = "smtp.example.test", Port = 587 };
     private static readonly SmtpClientCredentials Credentials = new() { UserName = "user", Password = "pass" };
 
-    private static SmtpReadyCheck CreateStrategy(SmtpClientOptions options, FakeTimeProvider clock) =>
+    private static SmtpConnectionPreparationStrategy CreateStrategy(SmtpClientOptions options, FakeTimeProvider clock) =>
         new(Options.Create(Host), Options.Create(Credentials), Options.Create(options), clock);
 
     private static SmtpConnection CreateConnection(SmtpClientOptions options, FakeTimeProvider clock, List<IMailTransport> created) =>

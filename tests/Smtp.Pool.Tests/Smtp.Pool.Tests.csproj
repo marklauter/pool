@@ -3,8 +3,8 @@
 	<PropertyGroup>
 		<!-- Scope coverage to the Smtp.Pool sample assembly only. -->
 		<Include>[Smtp.Pool]*</Include>
-		<!-- Sample is WIP: start the coverage ratchet at zero and raise it as the sample is completed (see docs/notes/smtp-pool-completion-report.md). -->
-		<Threshold>0,0,0</Threshold>
+		<!-- Coverage ratchet: floors set below the measured 96.61/87.5/100 (line/branch/method). Raise only — never lower — as coverage grows. -->
+		<Threshold>95,85,95</Threshold>
 	</PropertyGroup>
 
 	<ItemGroup>

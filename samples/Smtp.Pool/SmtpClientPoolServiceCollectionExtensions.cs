@@ -50,7 +50,7 @@ public static class SmtpClientPoolServiceCollectionExtensions
 
         return services
             .AddPoolItemFactory<SmtpConnection, SmtpConnectionFactory>()
-            .AddPreparationStrategy<SmtpConnection, SmtpReadyCheck>()
+            .AddPreparationStrategy<SmtpConnection, SmtpConnectionPreparationStrategy>()
             .AddPool<SmtpConnection>(configuration, configureOptions);
     }
 }

@@ -10,7 +10,7 @@ namespace Smtp.Pool;
 /// liveness check, while an aged-out or dropped one is recycled (reconnected) by <see cref="PrepareAsync"/>.
 /// </summary>
 [SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Instantiated by the DI container via AddPreparationStrategy in SmtpClientPoolServiceCollectionExtensions.")]
-internal sealed class SmtpReadyCheck(
+internal sealed class SmtpConnectionPreparationStrategy(
     IOptions<SmtpHostOptions> hostOptions,
     IOptions<SmtpClientCredentials> credentials,
     IOptions<SmtpClientOptions> clientOptions,

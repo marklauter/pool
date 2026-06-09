@@ -247,7 +247,7 @@ A pool with a custom factory and strategy:
 ```csharp
 services
     .AddPoolItemFactory<SmtpConnection, SmtpConnectionFactory>()
-    .AddPreparationStrategy<SmtpConnection, SmtpReadyCheck>()
+    .AddPreparationStrategy<SmtpConnection, SmtpConnectionPreparationStrategy>()
     .AddPool<SmtpConnection>(configuration, options =>
     {
         options.MinSize = 2;

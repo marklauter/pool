@@ -50,7 +50,7 @@ public sealed class ArchitectureTests
             .That()
             .HaveNameEndingWith("Factory")
             .Or()
-            .HaveNameEndingWith("ReadyCheck")
+            .HaveNameEndingWith("PreparationStrategy")
             .Should()
             .NotBePublic()
             .Because("writing-csharp: public interfaces, internal implementations — the IItemFactory and IPreparationStrategy implementations are wired through DI, never referenced directly."));
