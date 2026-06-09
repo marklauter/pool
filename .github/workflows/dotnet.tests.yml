@@ -37,7 +37,7 @@ jobs:
     - name: Verify formatting
       run: dotnet format "Pool.slnx" --severity info --verify-no-changes
 
-  unit-tests:
+  tests:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -58,44 +58,18 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-nuget-
 
+    # Tests the whole solution, including the smtp4dev integration tests. ubuntu-latest ships Docker;
+    # Testcontainers starts/stops the container itself (no services: block).
     - name: Build
-      run: dotnet build "tests/Pool.Tests/Pool.Tests.csproj" -c ${{ matrix.configuration }}
+      run: dotnet build "Pool.slnx" -c ${{ matrix.configuration }}
 
     - name: Test
-      run: dotnet test "tests/Pool.Tests/Pool.Tests.csproj" -c ${{ matrix.configuration }} --no-build
+      run: dotnet test "Pool.slnx" -c ${{ matrix.configuration }} --no-build
 
     - name: Upload coverage report
       if: always() && matrix.configuration == 'Debug'
       uses: actions/upload-artifact@v7
       with:
         name: coverage-cobertura
-        path: tests/Pool.Tests/coverage.cobertura.xml
+        path: tests/**/coverage.cobertura.xml
         if-no-files-found: error
-
-  integration-tests:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        configuration: [ Debug, Release ]
-    steps:
-    - uses: actions/checkout@v6
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v5
-      with:
-        dotnet-version: 10.0.x
-
-    - name: Cache NuGet packages
-      uses: actions/cache@v5
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
-
-    # ubuntu-latest ships Docker; Testcontainers starts/stops the smtp4dev container itself (no services: block).
-    - name: Build
-      run: dotnet build "tests/Smtp.Pool.Integration.Tests/Smtp.Pool.Integration.Tests.csproj" -c ${{ matrix.configuration }}
-
-    - name: Test
-      run: dotnet test "tests/Smtp.Pool.Integration.Tests/Smtp.Pool.Integration.Tests.csproj" -c ${{ matrix.configuration }} --no-build
