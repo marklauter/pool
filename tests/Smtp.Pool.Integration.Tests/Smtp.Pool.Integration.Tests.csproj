@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<!-- Integration tests assert real-server behavior over a containerized SMTP sink (Testcontainers),
+		     touching only a slice of the SUT; they exist to prove the real connect/auth/send path, not to
+		     drive coverage. Disable the inherited ratchet so the gate never fails on coverage this suite
+		     was never meant to chase. -->
+		<Include>[Smtp.Pool]*</Include>
+		<Threshold>0</Threshold>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.NET.Test.Sdk" />
+		<PackageReference Include="xunit.v3" />
+		<PackageReference Include="xunit.runner.visualstudio">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="coverlet.collector">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="coverlet.msbuild">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.Extensions.Logging" />
+		<PackageReference Include="Testcontainers" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\..\samples\Smtp.Pool\Smtp.Pool.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Using Include="Xunit" />
+	</ItemGroup>
+
+</Project>
