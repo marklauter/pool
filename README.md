@@ -306,28 +306,27 @@ services.AddPool<DbConnection, ReadClient>(configuration,
 
 ## Metrics
 
-`AddPool` wires up `IPoolMetrics`, implemented by `DefaultPoolMetrics` over `System.Diagnostics.Metrics`. Each pool publishes under a meter named `Pool<TPoolItem>.PoolName` — `"{typeof(TPoolItem).Name}.Pool"`. The instruments:
+> **Upgrading from v7?** The meter, instrument names, and tags changed in v8. See [UPGRADING](UPGRADING.md) for the before/after mapping and migration steps.
 
-- `lease_exception`, `preparation_exception` — counters of failed leases and failed preparations
-- `lease_wait_time`, `item_preparation_time` — histograms in milliseconds
-- `items_allocated`, `items_available`, `active_leases`, `queued_leases` — observable gauges of pool state
-- `utilization_rate` — active leases over allocated items
+`AddPool` wires up `IPoolMetrics`, implemented by `DefaultPoolMetrics` over `System.Diagnostics.Metrics` — the API OpenTelemetry consumes directly. Every pool publishes under one stable meter, `PoolMeter.Name` (`"MSL.Pool"`), and carries its identity as a `pool.name` tag rather than in the instrument name. The instruments:
 
-Collect them with any `System.Diagnostics.Metrics` listener — OpenTelemetry, `dotnet-counters`, a custom exporter — by adding the meter:
+- `pool.lease.exceptions`, `pool.preparation.exceptions` — counters of failed leases and failed preparations, tagged `error.type` with the exception type
+- `pool.lease.wait.duration`, `pool.item.preparation.duration` — histograms in seconds (OTEL convention), with bucket boundaries tuned for sub-millisecond-to-seconds pool latencies
+- `pool.items.allocated`, `pool.items.available`, `pool.leases.active`, `pool.leases.queued` — observable up/down counters of pool state
+- `pool.utilization` — observable gauge of active leases over allocated items
+
+Every measurement carries a `pool.name` tag, so metrics aggregate across pools and you slice by pool as a dimension. Collect them with any `System.Diagnostics.Metrics` listener — OpenTelemetry, `dotnet-counters`, a custom exporter — with a single `AddMeter`:
 
 ```csharp
 services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics
-        .AddMeter(Pool<MyPoolItem>.PoolName)
+        .AddMeter(PoolMeter.Name)
         .AddPrometheusExporter());
 ```
 
-A named pool prefixes its meter with the pool name — `"{name}.{typeof(TPoolItem).Name}.Pool"` — so each instance reports separately:
+That one subscription captures every pool in the process, named or not. Distinguish instances by the `pool.name` tag — for example, `ReadPool` and `WritePool` over `DbConnection` both report under `MSL.Pool`, separated by their tag values rather than by separate meters.
 
-```csharp
-.AddMeter($"ReadPool.{Pool<DbConnection>.PoolName}")
-.AddMeter($"WritePool.{Pool<DbConnection>.PoolName}")
-```
+The library takes no dependency on the OpenTelemetry SDK; it only exposes the meter via `System.Diagnostics.Metrics`, leaving the choice of exporter to the host app.
 
 To replace the default, implement `IPoolMetrics` and register it before `AddPool` resolves its own:
 

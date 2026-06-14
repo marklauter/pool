@@ -3,18 +3,28 @@ namespace Pool.Metrics;
 /// <summary>
 /// Interface for recording pool metrics. Implementations can forward metrics to various monitoring systems
 /// such as OpenTelemetry, Prometheus, or logging frameworks.
-/// Metric names are prefixed with the name of the pool <see cref="Pool{TPoolItem}.Name"/>
-/// Counter: {name}.lease_exception
-/// Counter: {name}.preparation_exception
-/// Histogram: {name}.lease_wait_time
-/// Histogram: {name}.item_preparation_time
-/// Observable Up/Down Counter: {name}.items_allocated
-/// Observable Up/Down Counter: {name}.items_available
-/// Observable Up/Down Counter: {name}.active_leases
-/// Observable Up/Down Counter: {name}.queued_leases
-/// Observable Guage: {name}.utilization_rate
+/// <para>
+/// The default implementation publishes every pool under one stable meter (<see cref="PoolMeter.Name"/>)
+/// and carries the pool's identity as a <c>pool.name</c> tag rather than embedding it in the instrument
+/// name, so measurements from all pools aggregate and a single <c>AddMeter</c> call captures them.
+/// </para>
+/// Counter: pool.lease.exceptions (tags: pool.name, error.type)
+/// Counter: pool.preparation.exceptions (tags: pool.name, error.type)
+/// Histogram: pool.lease.wait.duration (s; tag: pool.name)
+/// Histogram: pool.item.preparation.duration (s; tag: pool.name)
+/// Observable Up/Down Counter: pool.items.allocated (tag: pool.name)
+/// Observable Up/Down Counter: pool.items.available (tag: pool.name)
+/// Observable Up/Down Counter: pool.leases.active (tag: pool.name)
+/// Observable Up/Down Counter: pool.leases.queued (tag: pool.name)
+/// Observable Gauge: pool.utilization (tag: pool.name)
 /// </summary>
 /// <remarks>
+/// <para>
+/// Each <c>Register*Observer</c> call returns an <see cref="IDisposable"/>. The pool holds these
+/// handles for its lifetime and disposes them when the pool is disposed. .NET instruments cannot be
+/// removed from a meter, so disposal instead severs the observation callback: a disposed pool stops
+/// reporting and is no longer kept alive by the (often longer-lived) meter's observation callbacks.
+/// </para>
 /// For more information about dotnet metrics, see https://learn.microsoft.com/en-us/dotnet/core/diagnostics/metrics-instrumentation
 /// </remarks>
 public interface IPoolMetrics
@@ -49,29 +59,34 @@ public interface IPoolMetrics
     /// Registers an observer for the number of items allocated in the pool.
     /// </summary>
     /// <param name="observeValue"></param>
-    void RegisterItemsAllocatedObserver(Func<int> observeValue);
+    /// <returns>A handle that unregisters the observer when disposed.</returns>
+    IDisposable RegisterItemsAllocatedObserver(Func<int> observeValue);
 
     /// <summary>
     /// Registers an observer for the number of items available in the pool.
     /// </summary>
     /// <param name="observeValue"></param>
-    void RegisterItemsAvailableObserver(Func<int> observeValue);
+    /// <returns>A handle that unregisters the observer when disposed.</returns>
+    IDisposable RegisterItemsAvailableObserver(Func<int> observeValue);
 
     /// <summary>
     /// Registers an observer for the number of active leases in the pool.
     /// </summary>
     /// <param name="observeValue"></param>
-    void RegisterActiveLeasesObserver(Func<int> observeValue);
+    /// <returns>A handle that unregisters the observer when disposed.</returns>
+    IDisposable RegisterActiveLeasesObserver(Func<int> observeValue);
 
     /// <summary>
     /// Registers an observer for the number of queued leases in the pool.
     /// </summary>
     /// <param name="observeValue"></param>
-    void RegisterQueuedLeasesObserver(Func<int> observeValue);
+    /// <returns>A handle that unregisters the observer when disposed.</returns>
+    IDisposable RegisterQueuedLeasesObserver(Func<int> observeValue);
 
     /// <summary>
     /// Registers an observer for the utilization rate of the pool.
     /// </summary>
     /// <param name="observeValue"></param>
-    void RegisterUtilizationRateObserver(Func<double> observeValue);
+    /// <returns>A handle that unregisters the observer when disposed.</returns>
+    IDisposable RegisterUtilizationRateObserver(Func<double> observeValue);
 }
