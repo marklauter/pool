@@ -318,7 +318,7 @@ services.AddPool<DbConnection, ReadClient>(configuration,
 
 ## Metrics
 
-> **Upgrading from v7?** The meter, instrument names, and tags changed in v8. See [UPGRADING](UPGRADING.md) for the before/after mapping and migration steps.
+> **Upgrading from 7.0?** The meter, instrument names, and tags changed in 7.1. See [UPGRADING](UPGRADING.md) for the before/after mapping and migration steps.
 
 `AddPool` wires up `IPoolMetrics`, implemented by `DefaultPoolMetrics` over `System.Diagnostics.Metrics` — the API OpenTelemetry consumes directly. Every pool publishes under one stable meter, `PoolMeter.Name` (`"MSL.Pool"`), and carries its identity as a `pool.name` tag rather than in the instrument name. The instruments:
 

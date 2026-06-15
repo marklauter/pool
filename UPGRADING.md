@@ -1,8 +1,10 @@
 # Upgrading
 
-## 7.x → 8.0
+## 7.0 → 7.1
 
-**Version 8 changes the metrics telemetry contract.** The pool now publishes under a single, stable meter and follows OpenTelemetry naming conventions: instrument names no longer embed the pool's identity, and each pool is distinguished by a `pool.name` tag instead.
+**Version 7.1 changes the metrics telemetry contract.** The pool now publishes under a single, stable meter and follows OpenTelemetry naming conventions: instrument names no longer embed the pool's identity, and each pool is distinguished by a `pool.name` tag instead.
+
+> Note: these are breaking changes, and they shipped in the 7.1.0 minor release. Under semantic versioning they warranted a major bump; that was a mistake on our part. If you need to avoid them, pin to `7.0.*`.
 
 ### Do I need to change my code?
 
@@ -15,7 +17,7 @@ The break is in the **telemetry you export** — meter name, instrument names, a
 
 ### What changed
 
-| | v7 | v8 |
+| | 7.0 | 7.1 |
 |---|---|---|
 | Meter name | `Pool<T>.PoolName` — `"{T.Name}.Pool"` (named pools: `"{name}.{T.Name}.Pool"`) | `PoolMeter.Name` — `"MSL.Pool"` for **every** pool |
 | Pool identity | embedded in the meter and instrument names | carried as a `pool.name` tag |
@@ -23,7 +25,7 @@ The break is in the **telemetry you export** — meter name, instrument names, a
 
 Instrument renames (every instrument also gains a `pool.name` tag):
 
-| v7 instrument | v8 instrument | Added tags |
+| 7.0 instrument | 7.1 instrument | Added tags |
 |---|---|---|
 | `{T.Name}.Pool.lease_exception` | `pool.lease.exceptions` | `pool.name`, `error.type` |
 | `{T.Name}.Pool.preparation_exception` | `pool.preparation.exceptions` | `pool.name`, `error.type` |
@@ -57,7 +59,7 @@ using Pool.Metrics;
 
 ### Step 2 — Collapse named-pool subscriptions
 
-In v7 each named pool needed its own `AddMeter`. In v8 they all report under `MSL.Pool`, separated by their `pool.name` tag value (e.g. `"ReadPool.DbConnection.Pool"`).
+In 7.0 each named pool needed its own `AddMeter`. In 7.1 they all report under `MSL.Pool`, separated by their `pool.name` tag value (e.g. `"ReadPool.DbConnection.Pool"`).
 
 ```diff
   services.AddOpenTelemetry()
@@ -72,7 +74,7 @@ In v7 each named pool needed its own `AddMeter`. In v8 they all report under `MS
 
 This is the part that won't fail a build but will silently break panels and alerts:
 
-- **Rename the series** to the v8 instrument names above.
+- **Rename the series** to the 7.1 instrument names above.
 - **Move pool identity from the metric name to the `pool.name` attribute.** Filters and group-bys that keyed off the old per-pool metric name should now filter/group by the `pool.name` label. The upside: metrics from multiple pools now aggregate directly, which the old name-per-pool scheme prevented.
 - **Use `error.type`** to break down `pool.lease.exceptions` / `pool.preparation.exceptions` by exception type, or to alert on a specific failure.
 - **Durations are in seconds** (was milliseconds). Update any query, threshold, or axis that assumed milliseconds — divide old values by 1000.
@@ -92,7 +94,7 @@ The `IPoolMetrics` interface changed — custom implementations need two edits:
   }
   ```
 
-- If you embedded the pool name into your instrument names (following the v7 docs), consider switching to the v8 convention — a stable instrument name plus a `pool.name` tag.
+- If you embedded the pool name into your instrument names (following the 7.0 docs), consider switching to the 7.1 convention — a stable instrument name plus a `pool.name` tag.
 
 The `name` argument the framework passes to a metrics implementation is now intended as the **tag value**, not a name prefix. If you construct `DefaultPoolMetrics` directly (uncommon — `AddPool` and `AddDefaultPoolMetrics` do this for you), `name` becomes the `pool.name` tag and no longer affects the meter or instrument names.
 
