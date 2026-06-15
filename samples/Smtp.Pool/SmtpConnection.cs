@@ -10,7 +10,8 @@ namespace Smtp.Pool;
 /// idle time, and messages sent — so the preparation strategy can recycle the underlying transport
 /// before the server drops it. The pool leases the connection exclusively, so no internal locking is required.
 /// </summary>
-public sealed class SmtpConnection : IDisposable
+public sealed class SmtpConnection
+    : IDisposable
 {
     private readonly Func<IMailTransport> transportFactory;
     private readonly SmtpClientOptions options;
@@ -20,7 +21,10 @@ public sealed class SmtpConnection : IDisposable
     private DateTimeOffset lastActivityAt;
     private int messageCount;
 
-    internal SmtpConnection(Func<IMailTransport> transportFactory, SmtpClientOptions options, TimeProvider timeProvider)
+    internal SmtpConnection(
+        Func<IMailTransport> transportFactory,
+        SmtpClientOptions options,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(transportFactory);
         ArgumentNullException.ThrowIfNull(options);
