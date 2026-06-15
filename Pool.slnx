@@ -2,6 +2,4 @@
   <Project Path="src/Pool/Pool.csproj" />
   <Project Path="samples/Smtp.Pool/Smtp.Pool.csproj" />
   <Project Path="tests/Pool.Tests/Pool.Tests.csproj" />
-  <Project Path="tests/Smtp.Pool.Tests/Smtp.Pool.Tests.csproj" />
-  <Project Path="tests/Smtp.Pool.Integration.Tests/Smtp.Pool.Integration.Tests.csproj" />
 </Solution>

@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="../src/Pool/Pool.csproj" />
+  <Project Path="Smtp.Pool/Smtp.Pool.csproj" />
+  <Project Path="Smtp.Pool.Tests/Smtp.Pool.Tests.csproj" />
+  <Project Path="Smtp.Pool.Integration.Tests/Smtp.Pool.Integration.Tests.csproj" />
+</Solution>

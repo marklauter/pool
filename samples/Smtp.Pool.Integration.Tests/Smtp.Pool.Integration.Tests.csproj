@@ -1,10 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<!-- Scope coverage to the Smtp.Pool sample assembly only. -->
+		<!-- Coverage is scoped to the sample. This suite exercises only the real connect/auth/send slice
+		     over a containerized SMTP sink, so its floors sit well below the unit suite's: set below the
+		     measured 70.05/39.28/79.41 (line/branch/method). Raise only — never lower — as the integration
+		     suite grows (e.g. STARTTLS and recycle-against-a-real-server scenarios). -->
 		<Include>[Smtp.Pool]*</Include>
-		<!-- Coverage ratchet: floors set below the measured 100/87.5/100 (line/branch/method). Raise only — never lower — as coverage grows. -->
-		<Threshold>95,85,95</Threshold>
+		<Threshold>65,35,75</Threshold>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -22,13 +24,16 @@
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
-		<PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
-		<PackageReference Include="NSubstitute" />
-		<PackageReference Include="TngTech.ArchUnitNET" />
+		<PackageReference Include="Microsoft.Extensions.Logging" />
+		<PackageReference Include="Testcontainers" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\..\samples\Smtp.Pool\Smtp.Pool.csproj" />
+		<ProjectReference Include="..\Smtp.Pool\Smtp.Pool.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Using Include="Xunit" />
 	</ItemGroup>
 
 </Project>
