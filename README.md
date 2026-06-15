@@ -20,6 +20,7 @@
   - [Hello, World](#hello-world)
   - [How leasing works](#how-leasing-works)
   - [Leasing and releasing](#leasing-and-releasing)
+    - [Scoped leases](#scoped-leases)
   - [Footguns](#footguns)
     - [Release exactly once](#release-exactly-once)
     - [Never forget to release](#never-forget-to-release)
@@ -141,6 +142,17 @@ finally
 
 `LeaseAsync(cancellationToken)` cancels the wait. A canceled caller token throws `OperationCanceledException`; a lease that exceeds `LeaseTimeout` throws `TaskCanceledException`.
 
+### Scoped leases
+
+`LeaseScopeAsync` wraps the lease in a disposable `Lease<TPoolItem>`, so a `using` returns the item on scope exit — no `try`/`finally`, and a double dispose is a safe no-op:
+
+```csharp
+using var lease = await pool.LeaseScopeAsync(cancellationToken);
+await lease.Item.SendAsync(message, cancellationToken);
+```
+
+This is the recommended way to lease: it turns "forgot to release" — which no analyzer can see — into "forgot to dispose," which `using` and the IDisposable analyzers already guard against. It also makes the release idempotent, closing the double-release footgun below. The raw `LeaseAsync`/`Release` pair stays available for advanced cases. A `Lease` that is garbage-collected without being disposed is counted on the `pool.leases.leaked` counter, so leaks are observable even when they slip through.
+
 ## Footguns
 
 The lease/release contract is a balanced pair, and the pool trusts you to honor it. Like `ArrayPool<T>.Return`, it doesn't police misuse — these are the sharp edges.
@@ -151,7 +163,7 @@ The pool tracks no ownership. Releasing the same item twice — or releasing an 
 
 ### Never forget to release
 
-A lease that never returns holds its permit for the life of the pool. Leak `MaxSize` permits and the pool saturates: every later lease waits out the full `LeaseTimeout` and then throws. The `try`/`finally` is not optional.
+A lease that never returns holds its permit for the life of the pool. Leak `MaxSize` permits and the pool saturates: every later lease waits out the full `LeaseTimeout` and then throws. The `try`/`finally` is not optional — or use a [scoped lease](#scoped-leases) so the return is automatic.
 
 ### Dispose reclaims idle items only
 
@@ -314,6 +326,7 @@ services.AddPool<DbConnection, ReadClient>(configuration,
 - `pool.lease.wait.duration`, `pool.item.preparation.duration` — histograms in seconds (OTEL convention), with bucket boundaries tuned for sub-millisecond-to-seconds pool latencies
 - `pool.items.allocated`, `pool.items.available`, `pool.leases.active`, `pool.leases.queued` — observable up/down counters of pool state
 - `pool.utilization` — observable gauge of active leases over allocated items
+- `pool.leases.leaked` — counter of leases garbage-collected without being returned (see [Scoped leases](#scoped-leases))
 
 Every measurement carries a `pool.name` tag, so metrics aggregate across pools and you slice by pool as a dimension. Collect them with any `System.Diagnostics.Metrics` listener — OpenTelemetry, `dotnet-counters`, a custom exporter — with a single `AddMeter`:
 
