@@ -40,7 +40,7 @@ public sealed class Lease<TPoolItem>
     /// The leased item. Throws <see cref="ObjectDisposedException"/> once the lease has been disposed
     /// (returned), guarding against use-after-return.
     /// </summary>
-    public TPoolItem Item => item ?? throw new ObjectDisposedException(nameof(Lease<TPoolItem>));
+    public TPoolItem Item => item ?? throw new ObjectDisposedException(nameof(Lease<>));
 
     /// <summary>
     /// Returns the item to the pool. Idempotent — a second dispose is a no-op, so a lease can never
