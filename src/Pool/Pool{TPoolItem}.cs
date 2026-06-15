@@ -46,6 +46,9 @@ public sealed class Pool<TPoolItem>
     private readonly TimeSpan preparationTimeout;
     private bool disposed;
     private readonly IPoolMetrics metrics;
+    // handles for the observable-instrument registrations; disposed on pool disposal so the
+    // instruments stop reporting and no longer root this pool via the (longer-lived) meter.
+    private readonly IDisposable[] observerRegistrations;
     private readonly TimeProvider timeProvider;
 
     /// <summary>
@@ -131,12 +134,16 @@ public sealed class Pool<TPoolItem>
         // one permit per unit of capacity; the leased count can never exceed maxSize
         gate = new SemaphoreSlim(maxSize, maxSize);
 
-        // counters are derived from gate + pool, so register the observers once both exist
-        this.metrics.RegisterItemsAllocatedObserver(() => ItemsAllocated);
-        this.metrics.RegisterItemsAvailableObserver(() => ItemsAvailable);
-        this.metrics.RegisterActiveLeasesObserver(() => ActiveLeases);
-        this.metrics.RegisterQueuedLeasesObserver(() => QueuedLeases);
-        this.metrics.RegisterUtilizationRateObserver(() => ItemsAllocated == 0 ? 0 : (double)ActiveLeases / ItemsAllocated);
+        // counters are derived from gate + pool, so register the observers once both exist.
+        // keep the registration handles so Dispose can unregister the instruments.
+        observerRegistrations =
+        [
+            this.metrics.RegisterItemsAllocatedObserver(() => ItemsAllocated),
+            this.metrics.RegisterItemsAvailableObserver(() => ItemsAvailable),
+            this.metrics.RegisterActiveLeasesObserver(() => ActiveLeases),
+            this.metrics.RegisterQueuedLeasesObserver(() => QueuedLeases),
+            this.metrics.RegisterUtilizationRateObserver(() => ItemsAllocated == 0 ? 0 : (double)ActiveLeases / ItemsAllocated),
+        ];
 
         logger.LogInformation("{PoolName} created with {@Options}", PoolName, options);
     }
@@ -384,6 +391,13 @@ public sealed class Pool<TPoolItem>
         }
 
         disposed = true;
+
+        // sever the observable instruments first so a concurrent metrics collection cannot read
+        // pool state mid-teardown, and so the meter no longer roots this disposed pool
+        foreach (var registration in observerRegistrations)
+        {
+            registration?.Dispose();
+        }
 
         // any caller parked in WaitAsync wakes with ObjectDisposedException
         DrainPoolAndDisposeItems();

@@ -43,14 +43,11 @@ public sealed class SendAndReceiveTests(Smtp4devFixture smtp4dev)
         message.Subject = subject;
         message.Body = new TextPart("plain") { Text = "hello from the pool" };
 
-        var connection = await pool.LeaseAsync(cancellationToken);
-        try
+        // scoped lease: the connection returns to the pool when the using block exits, before we
+        // switch over to checking the inbox
+        using (var lease = await pool.LeaseScopeAsync(cancellationToken))
         {
-            await connection.SendAsync(message, cancellationToken);
-        }
-        finally
-        {
-            pool.Release(connection);
+            await lease.Item.SendAsync(message, cancellationToken);
         }
 
         using var received = await WaitForMessageAsync(subject, cancellationToken);

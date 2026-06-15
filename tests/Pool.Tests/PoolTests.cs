@@ -644,15 +644,25 @@ public sealed class PoolTests(IPool<IEcho> pool, IPoolMetrics metrics, PoolOptio
     {
         public Func<double>? UtilizationRate { get; private set; }
 
-        public void RegisterUtilizationRateObserver(Func<double> observeValue) => UtilizationRate = observeValue;
+        public IDisposable RegisterUtilizationRateObserver(Func<double> observeValue)
+        {
+            UtilizationRate = observeValue;
+            return NoopDisposable.Instance;
+        }
 
-        public void RegisterItemsAllocatedObserver(Func<int> observeValue) { }
-        public void RegisterItemsAvailableObserver(Func<int> observeValue) { }
-        public void RegisterActiveLeasesObserver(Func<int> observeValue) { }
-        public void RegisterQueuedLeasesObserver(Func<int> observeValue) { }
+        public IDisposable RegisterItemsAllocatedObserver(Func<int> observeValue) => NoopDisposable.Instance;
+        public IDisposable RegisterItemsAvailableObserver(Func<int> observeValue) => NoopDisposable.Instance;
+        public IDisposable RegisterActiveLeasesObserver(Func<int> observeValue) => NoopDisposable.Instance;
+        public IDisposable RegisterQueuedLeasesObserver(Func<int> observeValue) => NoopDisposable.Instance;
         public void RecordLeaseException(Exception ex) { }
         public void RecordPreparationException(Exception ex) { }
         public void RecordLeaseWaitTime(TimeSpan duration) { }
         public void RecordPreparationTime(TimeSpan duration) { }
+
+        private sealed class NoopDisposable : IDisposable
+        {
+            public static readonly NoopDisposable Instance = new();
+            public void Dispose() { }
+        }
     }
 }

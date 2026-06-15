@@ -10,7 +10,8 @@ namespace Smtp.Pool;
 /// idle time, and messages sent — so the preparation strategy can recycle the underlying transport
 /// before the server drops it. The pool leases the connection exclusively, so no internal locking is required.
 /// </summary>
-public sealed class SmtpConnection : IDisposable
+public sealed class SmtpConnection
+    : IDisposable
 {
     private readonly Func<IMailTransport> transportFactory;
     private readonly SmtpClientOptions options;
@@ -20,7 +21,10 @@ public sealed class SmtpConnection : IDisposable
     private DateTimeOffset lastActivityAt;
     private int messageCount;
 
-    internal SmtpConnection(Func<IMailTransport> transportFactory, SmtpClientOptions options, TimeProvider timeProvider)
+    internal SmtpConnection(
+        Func<IMailTransport> transportFactory,
+        SmtpClientOptions options,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(transportFactory);
         ArgumentNullException.ThrowIfNull(options);
@@ -50,8 +54,9 @@ public sealed class SmtpConnection : IDisposable
             || options.MaxIdleLifetime > TimeSpan.Zero && now - lastActivityAt >= options.MaxIdleLifetime);
 
     /// <summary>
-    /// Sends a message over the leased connection. Lease from the pool, send, then release; the pool
-    /// guarantees exclusive use for the lease's duration.
+    /// Sends a message over the leased connection. Lease it with <c>LeaseScopeAsync</c> and send within
+    /// the <c>using</c> so the connection returns to the pool on scope exit; the pool guarantees
+    /// exclusive use for the lease's duration.
     /// </summary>
     public async Task SendAsync(MimeMessage message, CancellationToken cancellationToken = default)
     {
