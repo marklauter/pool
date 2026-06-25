@@ -19,7 +19,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - uses: ./.github/actions/setup-dotnet
 
     - name: Verify formatting
@@ -31,10 +31,10 @@ jobs:
       matrix:
         configuration: [ Debug, Release ]
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - uses: ./.github/actions/setup-dotnet
 
-    # Tests Pool.slnx â€” the library, its unit tests, and the Smtp.Pool sample (built, not tested).
+    # Tests Pool.slnx — the library, its unit tests, and the Smtp.Pool sample (built, not tested).
     # The Smtp.Pool test projects live under samples/ (samples/Smtp.Pool.slnx) and are intentionally
     # excluded from CI: the integration suite needs Docker and is run locally against the sample,
     # not as a library CI gate.
