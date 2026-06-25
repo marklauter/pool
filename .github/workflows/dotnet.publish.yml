@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to pack for a dry run (build/test/pack/upload only â€” no nuget push)"
+        description: "Version to pack for a dry run (build/test/pack/upload only — no nuget push)"
         required: false
         default: "0.0.0-dryrun"
 
@@ -21,7 +21,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - uses: ./.github/actions/setup-dotnet
 
     - name: Restore dependencies
@@ -39,7 +39,7 @@ jobs:
     permissions:
       contents: read
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - uses: ./.github/actions/setup-dotnet
 
     - name: Resolve package version
