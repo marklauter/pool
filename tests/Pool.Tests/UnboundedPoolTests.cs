@@ -325,7 +325,7 @@ public sealed class UnboundedPoolTests
         _ = Assert.Throws<ArgumentNullException>(
             () => new UnboundedPool<IEcho>(new EchoFactory(), Logger, null!, new UnboundedPoolOptions()));
         _ = Assert.Throws<ArgumentNullException>(
-            () => new UnboundedPool<IEcho>(new EchoFactory(), Logger, Metrics, (UnboundedPoolOptions)null!));
+            () => new UnboundedPool<IEcho>(new EchoFactory(), Logger, Metrics, null!));
     }
 
     [Fact]
