@@ -31,6 +31,7 @@
   - [Preparation strategy](#preparation-strategy)
   - [Dependency injection](#dependency-injection)
   - [Named pools](#named-pools)
+  - [Unbounded pool](#unbounded-pool)
   - [Metrics](#metrics)
   - [FAQ](#faq)
 
@@ -315,6 +316,64 @@ services.AddPool<DbConnection, ReadClient>(configuration,
         // configure the resolved client
     });
 ```
+
+## Unbounded pool
+
+`UnboundedPool<TPoolItem>` is a variant that never blocks a lease. Where the default pool *borrows* — it holds a hard `MaxSize` ceiling and a lease waits when every item is out — the unbounded pool *transfers ownership*: `LeaseAsync` returns immediately, handing back an idle item or creating one on the spot, and `Release` becomes an optional optimization that donates an item back for reuse. It's modeled on [`System.Buffers.ArrayPool<T>`](https://learn.microsoft.com/dotnet/api/system.buffers.arraypool-1): rent freely, return when you can, and a return you skip costs reuse but never correctness.
+
+Because a lease transfers ownership, the contract is looser than the bounded pool's:
+
+- **Release is optional.** A leased item the caller never releases is not reused. When the item is `IDisposable`, disposing it is the caller's responsibility — as it is for any object the caller owns.
+- **There is no `MaxSize` and no `LeaseTimeout`.** A lease never waits for capacity, so there is nothing to bound or time out. The only cap is on *retention*: `MaxIdle` bounds how many returned items the pool keeps for reuse. Returns past that cap are dropped, and disposed when the item is `IDisposable`.
+- **The pool disposes only the idle items it still holds** — on a capped return that overflows, on idle-timeout eviction, on `Clear`, and on `Dispose`. Items out on lease belong to their callers.
+
+Reach for the unbounded pool when you want pooled reuse without a concurrency ceiling: when blocking or timing out a caller costs more than allocating one more item, and you want to cap memory by how many idle items you retain rather than by how many can be live at once.
+
+### Registration
+
+`AddUnboundedPool` parallels `AddPool`, binding `UnboundedPoolOptions` from the `"UnboundedPoolOptions"` configuration section:
+
+```csharp
+services.AddTransient<SmtpConnection>();
+services.AddUnboundedPool<SmtpConnection>(configuration, options =>
+{
+    options.MinSize = 2;               // pre-create two on startup
+    options.MaxIdle = 50;              // retain up to fifty idle items for reuse
+    options.UseDefaultFactory = true;  // construct items from the service provider
+});
+```
+
+Inject the same `IPool<SmtpConnection>` surface — the concrete pool type is an implementation detail:
+
+```csharp
+var connection = await pool.LeaseAsync();
+try
+{
+    await connection.SendAsync(message);
+}
+finally
+{
+    pool.Release(connection);          // optional here, but still returns the item for reuse
+}
+```
+
+Scoped leases ([`LeaseScopeAsync`](#scoped-leases)) work unchanged and remain the cleanest way to lease — the dispose donates the item back for reuse. Named pools and typed clients have unbounded counterparts as well: `AddNamedUnboundedPool<TPoolItem>(name, …)` and `AddUnboundedPool<TPoolItem, TClient>(…)`, matching the bounded [named pool](#named-pools) registrations.
+
+### Options
+
+`UnboundedPoolOptions` carries only the settings that apply when a lease never blocks:
+
+- `MinSize` — items created up front, and the floor `Clear()` refills to. Capped by `MaxIdle` when seeding. Defaults to `0`.
+- `MaxIdle` — the maximum number of idle items retained for reuse. Returns beyond this cap are dropped, and disposed when the item is `IDisposable`. Zero retains nothing — every return is dropped, for pure allocate-on-lease. Defaults to `100`.
+- `IdleTimeout` — how long an item may sit idle before the next lease discards and disposes it instead of reusing it. Eviction is lazy, as in the bounded pool. Defaults to `Timeout.InfiniteTimeSpan`.
+- `PreparationTimeout` — how long the readiness check and preparation may take, combined. Defaults to `Timeout.InfiniteTimeSpan`.
+- `UseDefaultFactory` and `UseDefaultPreparationStrategy` — register the built-in factory and preparation strategy, as for the bounded pool.
+
+`UnboundedPoolOptions` has no `MaxSize` or `LeaseTimeout`, because a lease never waits.
+
+### Metrics
+
+The unbounded pool reports through the same `IPoolMetrics` instruments under the `"MSL.Pool"` meter, tagged with its own `pool.name` of the form `"{typeof(TPoolItem).Name}.UnboundedPool"`. Two instruments read differently by design: `pool.leases.queued` is always `0`, because a lease never queues, and `pool.items.allocated` is `ActiveLeases + ItemsAvailable` — a gauge that counts items a caller leased and never returned, because those items are still in use.
 
 ## Metrics
 
