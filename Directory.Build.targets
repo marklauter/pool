@@ -1,0 +1,11 @@
+<Project>
+
+	<!-- Documentation generation is opt-in via IsPackable. Projects that ship as NuGet packages set
+	     <IsPackable>true</IsPackable> and pick up doc-gen. In-solution libraries, samples, and apps set
+	     <IsPackable>false</IsPackable> and skip the ceremony; executables (OutputType=Exe) are excluded outright. -->
+	<PropertyGroup Condition="'$(IsTestProject)' != 'true' and '$(OutputType)' != 'Exe' and '$(IsPackable)' != 'false'">
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<DocumentationFile>$(OutputPath)$(AssemblyName).xml</DocumentationFile>
+	</PropertyGroup>
+
+</Project>

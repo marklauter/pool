@@ -2,7 +2,6 @@
 
 	<PropertyGroup>
 		<PackageId>MSL.$(AssemblyName)</PackageId>
-		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<Title>MSL.Pool — thread-safe async object pool with leasing, bounded concurrency, and metrics</Title>
 		<ProductName>MSL.$(AssemblyName)</ProductName>
 		<Authors>Mark Lauter</Authors>

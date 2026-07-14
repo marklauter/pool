@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to pack for a dry run (build/test/pack/upload only — no nuget push)"
+        description: "Version to pack for a dry run (build/test/pack/upload only â€” no nuget push)"
         required: false
         default: "0.0.0-dryrun"
 
@@ -25,13 +25,13 @@ jobs:
     - uses: ./.github/actions/setup-dotnet
 
     - name: Restore dependencies
-      run: dotnet restore "Pool.slnx"
+      run: dotnet restore
 
     - name: Build
-      run: dotnet build "Pool.slnx" -c Release --no-restore
+      run: dotnet build -c Release --no-restore
 
     - name: Test
-      run: dotnet test "Pool.slnx" -c Release --no-build
+      run: dotnet test -c Release --no-build
 
   publish:
     needs: test
@@ -55,10 +55,10 @@ jobs:
         echo "PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
 
     - name: Restore
-      run: dotnet restore src/Pool/Pool.csproj
+      run: dotnet restore
 
     - name: Pack
-      run: dotnet pack src/Pool/Pool.csproj -c Release --no-restore -o nuget -p:PackageVersion=$PACKAGE_VERSION -p:Version=$PACKAGE_VERSION
+      run: dotnet pack Pool.slnx -c Release --no-restore -o nuget -p:PackageVersion=$PACKAGE_VERSION -p:Version=$PACKAGE_VERSION
 
     - name: Upload package artifacts
       uses: actions/upload-artifact@v7
