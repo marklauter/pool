@@ -1,12 +1,12 @@
-name: .NET Test
+name: .NET Tests
 
 on:
   push:
     branches: [ "main" ]
-    paths: [ "src/**", "tests/**", "samples/**", "Directory.Build.props", "Directory.Packages.props", ".editorconfig", "global.json", ".github/workflows/dotnet.tests.yml", ".github/actions/setup-dotnet/action.yml" ]
+    paths: [ "src/**", "tests/**", "samples/**", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", ".editorconfig", ".gitattributes", "global.json", ".github/workflows/dotnet.tests.yml", ".github/actions/setup-dotnet/action.yml" ]
   pull_request:
     branches: [ "main" ]
-    paths: [ "src/**", "tests/**", "samples/**", "Directory.Build.props", "Directory.Packages.props", ".editorconfig", "global.json", ".github/workflows/dotnet.tests.yml", ".github/actions/setup-dotnet/action.yml" ]
+    paths: [ "src/**", "tests/**", "samples/**", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props", ".editorconfig", ".gitattributes", "global.json", ".github/workflows/dotnet.tests.yml", ".github/actions/setup-dotnet/action.yml" ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,7 +25,7 @@ jobs:
     - name: Verify formatting
       run: dotnet format "Pool.slnx" --severity info --verify-no-changes
 
-  tests:
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -34,20 +34,24 @@ jobs:
     - uses: actions/checkout@v7
     - uses: ./.github/actions/setup-dotnet
 
-    # Tests Pool.slnx — the library, its unit tests, and the Smtp.Pool sample (built, not tested).
-    # The Smtp.Pool test projects live under samples/ (samples/Smtp.Pool.slnx) and are intentionally
-    # excluded from CI: the integration suite needs Docker and is run locally against the sample,
-    # not as a library CI gate.
+    # Builds Pool.slnx â€” the library, its unit tests, and the Smtp.Pool sample (built, not tested).
+    # The Smtp.Pool test projects live under samples/Smtp.Pool.slnx and are intentionally excluded
+    # from CI: the integration suite needs Docker and is run locally against the sample, not as a
+    # library CI gate.
+    - name: Restore dependencies
+      run: dotnet restore
+
     - name: Build
-      run: dotnet build "Pool.slnx" -c ${{ matrix.configuration }}
+      run: dotnet build -c ${{ matrix.configuration }} --no-restore
 
     - name: Test
-      run: dotnet test "Pool.slnx" -c ${{ matrix.configuration }} --no-build
+      run: dotnet test -c ${{ matrix.configuration }} --no-build
 
     - name: Upload coverage report
       if: always() && matrix.configuration == 'Debug'
       uses: actions/upload-artifact@v7
       with:
         name: coverage-cobertura
-        path: tests/**/coverage.cobertura.xml
+        path: |
+          tests/Pool.Tests/coverage.cobertura.xml
         if-no-files-found: error
