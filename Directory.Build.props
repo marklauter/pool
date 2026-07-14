@@ -13,7 +13,8 @@
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
 		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 		<!-- CA1873 avoid-potentially-expensive-logging-args : diagnostic log arguments are cheap value reads (counts, elapsed ms); the rule ships only in the newer SDK analyzer band so it flickers across environments — suppressed solution-wide for stable builds -->
-		<NoWarn>$(NoWarn);CA1873</NoWarn>
+		<!-- CA2007 consider-calling-configureawait : ConfigureAwait is advice for apps that carry a synchronization context; Pool is a library and never captures one, so the call would be noise on every await -->
+		<NoWarn>$(NoWarn);CA1873;CA2007</NoWarn>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
@@ -22,8 +23,9 @@
 		<!-- Test-project analyzer carve-outs, gated here rather than in per-assembly GlobalSuppressions:
 		     CA1707/IDE1006 - test method names use underscores (Given_When_Then) by convention.
 		     IDE0079        - keeps the inline IDISP suppressions in the test code from being flagged as unnecessary.
-		     CA1515         - xUnit requires public test classes, so "make public types internal" does not apply. -->
-		<NoWarn>$(NoWarn);CA1707;IDE1006;IDE0079;CA1515</NoWarn>
+		     CA1515         - xUnit requires public test classes, so "make public types internal" does not apply.
+		     CA1812         - internal test fixture types (PoolItem, PoolClient) are activated reflectively by the DI container, so the analyzer cannot see construction. -->
+		<NoWarn>$(NoWarn);CA1707;IDE1006;IDE0079;CA1515;CA1812</NoWarn>
 		<CollectCoverage>true</CollectCoverage>
 		<CoverletOutputFormat>cobertura</CoverletOutputFormat>
 		<!-- Exception types are plumbing; exclude from coverage to avoid noise. -->
