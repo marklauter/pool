@@ -16,7 +16,7 @@
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageLicenseFile>LICENSE</PackageLicenseFile>
-		<PackageIcon>pool.png</PackageIcon>
+		<PackageIcon>msl.rocket.tx.clean.small.png</PackageIcon>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -37,7 +37,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<None Include="..\..\images\pool.png">
+		<None Include="..\..\images\msl.rocket.tx.clean.small.png">
 			<Pack>True</Pack>
 			<PackagePath>\</PackagePath>
 		</None>

@@ -3,7 +3,6 @@
 [![NuGet](https://img.shields.io/nuget/v/MSL.Pool?logo=nuget)](https://www.nuget.org/packages/MSL.Pool/)
 [![.NET](https://img.shields.io/badge/.NET-10.0-blue)](https://dotnet.microsoft.com/en-us/download/dotnet/10.0/)
 
-![Pool](https://raw.githubusercontent.com/marklauter/pool/main/images/pool.png "Pool")
 ![MSL Armory](https://raw.githubusercontent.com/marklauter/pool/main/images/msl.armory.small.png "MSL Armory")
 
 # Pool
