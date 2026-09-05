@@ -26,6 +26,8 @@
 		     CA1515         - xUnit requires public test classes, so "make public types internal" does not apply.
 		     CA1812         - internal test fixture types (PoolItem, PoolClient) are activated reflectively by the DI container, so the analyzer cannot see construction. -->
 		<NoWarn>$(NoWarn);CA1707;IDE1006;IDE0079;CA1515;CA1812</NoWarn>
+		<!-- xunit.v3 4.x defaults to the Microsoft.Testing.Platform runner; keep the VSTest entry point so coverlet.msbuild's coverage ratchet still runs under `dotnet test`. -->
+		<IsTestingPlatformApplication>false</IsTestingPlatformApplication>
 		<CollectCoverage>true</CollectCoverage>
 		<CoverletOutputFormat>cobertura</CoverletOutputFormat>
 		<!-- Exception types are plumbing; exclude from coverage to avoid noise. -->
