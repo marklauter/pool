@@ -11,7 +11,7 @@
     <PackageVersion Include="Microsoft.Extensions.Diagnostics" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
-    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.15" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="11.0.100" />
     <!-- Samples -->
     <PackageVersion Include="MailKit" Version="5.0.0" />
