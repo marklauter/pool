@@ -189,7 +189,8 @@ public sealed class SmtpConnectionTests
 
         await connection.SendAsync(message, CancellationToken.None);
 
-        _ = await created[0].Received(1).SendAsync(message, Arg.Any<CancellationToken>());
+        _ = await created[0].Received(1).SendAsync(
+            Arg.Is<ISendRequest>(request => request.Message == message), Arg.Any<CancellationToken>());
     }
 
     [Fact]
