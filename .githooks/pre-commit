@@ -1,0 +1,12 @@
+#!/bin/sh
+# Mirrors the CI format check, limited to staged C# files.
+# Enable once per clone: git config core.hooksPath .githooks
+
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.cs' | grep -v '^samples/')
+[ -z "$files" ] && exit 0
+
+# shellcheck disable=SC2086
+if ! dotnet format Pool.slnx --severity info --verify-no-changes --include $files; then
+    echo "pre-commit: dotnet format found issues. Run: dotnet format Pool.slnx --severity info" >&2
+    exit 1
+fi
